@@ -2771,6 +2771,26 @@ fn test_client_messages() {
         client_id: Some(100),
         is_cli_client: true,
     });
+    test_client_roundtrip!(ClientToServerMsg::Action {
+        action: Action::SetPaneBorderStyle {
+            pane_id: PaneId::Terminal(0),
+            fg: Some("#00e000".to_owned()),
+            bg: Some("#001a3a".to_owned()),
+        },
+        terminal_id: Some(1),
+        client_id: Some(100),
+        is_cli_client: true,
+    });
+    test_client_roundtrip!(ClientToServerMsg::Action {
+        action: Action::SetPaneBorderStyle {
+            pane_id: PaneId::Plugin(2),
+            fg: None,
+            bg: Some("#001a3a".to_owned()),
+        },
+        terminal_id: Some(1),
+        client_id: Some(100),
+        is_cli_client: true,
+    });
     test_client_roundtrip!(ClientToServerMsg::Key {
         key: KeyWithModifier {
             bare_key: BareKey::PageDown,

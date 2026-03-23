@@ -341,6 +341,12 @@ pub enum Action {
         fg: Option<String>,
         bg: Option<String>,
     },
+    /// Set pane border foreground/background style
+    SetPaneBorderStyle {
+        pane_id: PaneId,
+        fg: Option<String>,
+        bg: Option<String>,
+    },
     /// Detach session and exit
     Detach,
     /// Switch to a different session
@@ -1896,6 +1902,38 @@ impl Action {
                     )),
                 }
             },
+            CliAction::SetPaneBorderStyle {
+                pane_id,
+                fg,
+                bg,
+                reset,
+            } => {
+                let pane_id_str = match pane_id {
+                    Some(id) => id,
+                    None => std::env::var("ZELLIJ_PANE_ID").map_err(|_| {
+                        "No --pane-id provided and ZELLIJ_PANE_ID is not set".to_string()
+                    })?,
+                };
+                let parsed_pane_id = PaneId::from_str(&pane_id_str);
+                match parsed_pane_id {
+                    Ok(parsed_pane_id) => {
+                        let (fg, bg) = if reset { (None, None) } else { (fg, bg) };
+                        if fg.is_none() && bg.is_none() && !reset {
+                            Err("Must specify either --fg, --bg, or --reset".to_string())
+                        } else {
+                            Ok(vec![Action::SetPaneBorderStyle {
+                                pane_id: parsed_pane_id,
+                                fg,
+                                bg,
+                            }])
+                        }
+                    },
+                    Err(_e) => Err(format!(
+                        "Malformed pane id: {}, expecting either a bare integer (eg. 1), a terminal pane id (eg. terminal_1) or a plugin pane id (eg. plugin_1)",
+                        pane_id_str
+                    )),
+                }
+            },
             CliAction::Detach => Ok(vec![Action::Detach]),
             CliAction::SwitchSession {
                 name,
@@ -3098,6 +3136,124 @@ mod tests {
                 assert!(*ansi);
             },
             _ => panic!("Expected DumpScreen action"),
+        }
+    }
+
+    #[test]
+    fn test_toggle_pane_borderless() {
+        let cli_action = CliAction::TogglePaneBorderless {
+            pane_id: "terminal_20".to_string(),
+        };
+        let result = Action::actions_from_cli(cli_action, Box::new(|| PathBuf::from("/tmp")), None);
+        assert!(result.is_ok());
+        let actions = result.unwrap();
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            Action::TogglePaneBorderless { pane_id } => {
+                assert_eq!(*pane_id, PaneId::Terminal(20));
+            },
+            _ => panic!("Expected TogglePaneBorderless action"),
+        }
+    }
+
+    #[test]
+    fn test_set_pane_borderless() {
+        let cli_action = CliAction::SetPaneBorderless {
+            pane_id: "plugin_21".to_string(),
+            borderless: true,
+        };
+        let result = Action::actions_from_cli(cli_action, Box::new(|| PathBuf::from("/tmp")), None);
+        assert!(result.is_ok());
+        let actions = result.unwrap();
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            Action::SetPaneBorderless {
+                pane_id,
+                borderless,
+            } => {
+                assert_eq!(*pane_id, PaneId::Plugin(21));
+                assert!(*borderless);
+            },
+            _ => panic!("Expected SetPaneBorderless action"),
+        }
+    }
+
+    #[test]
+    fn test_set_pane_border_style_fg_bg() {
+        let cli_action = CliAction::SetPaneBorderStyle {
+            pane_id: Some("plugin_22".to_string()),
+            fg: Some("#00e000".to_string()),
+            bg: Some("#001a3a".to_string()),
+            reset: false,
+        };
+        let result = Action::actions_from_cli(cli_action, Box::new(|| PathBuf::from("/tmp")), None);
+        assert!(result.is_ok());
+        let actions = result.unwrap();
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            Action::SetPaneBorderStyle { pane_id, fg, bg } => {
+                assert_eq!(*pane_id, PaneId::Plugin(22));
+                assert_eq!(fg, &Some("#00e000".to_string()));
+                assert_eq!(bg, &Some("#001a3a".to_string()));
+            },
+            _ => panic!("Expected SetPaneBorderStyle action"),
+        }
+    }
+
+    #[test]
+    fn test_set_pane_border_style_bg_only() {
+        let cli_action = CliAction::SetPaneBorderStyle {
+            pane_id: Some("terminal_23".to_string()),
+            fg: None,
+            bg: Some("#001a3a".to_string()),
+            reset: false,
+        };
+        let result = Action::actions_from_cli(cli_action, Box::new(|| PathBuf::from("/tmp")), None);
+        assert!(result.is_ok());
+        let actions = result.unwrap();
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            Action::SetPaneBorderStyle { pane_id, fg, bg } => {
+                assert_eq!(*pane_id, PaneId::Terminal(23));
+                assert_eq!(*fg, None);
+                assert_eq!(bg, &Some("#001a3a".to_string()));
+            },
+            _ => panic!("Expected SetPaneBorderStyle action"),
+        }
+    }
+
+    #[test]
+    fn test_set_pane_border_style_requires_style_or_reset() {
+        let cli_action = CliAction::SetPaneBorderStyle {
+            pane_id: Some("terminal_23".to_string()),
+            fg: None,
+            bg: None,
+            reset: false,
+        };
+        let result = Action::actions_from_cli(cli_action, Box::new(|| PathBuf::from("/tmp")), None);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Must specify either --fg, --bg, or --reset");
+    }
+
+    #[test]
+    fn test_set_pane_border_style_reset() {
+        let cli_action = CliAction::SetPaneBorderStyle {
+            pane_id: Some("terminal_24".to_string()),
+            fg: None,
+            bg: None,
+            reset: true,
+        };
+        let result = Action::actions_from_cli(cli_action, Box::new(|| PathBuf::from("/tmp")), None);
+        assert!(result.is_ok());
+        let actions = result.unwrap();
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            Action::SetPaneBorderStyle { pane_id, fg, bg } => {
+                assert_eq!(*pane_id, PaneId::Terminal(24));
+                assert_eq!(*fg, None);
+                assert_eq!(*bg, None);
+            },
+            _ => panic!("Expected SetPaneBorderStyle action"),
         }
     }
 }

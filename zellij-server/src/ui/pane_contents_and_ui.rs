@@ -2,10 +2,10 @@ use crate::output::Output;
 use crate::panes::PaneId;
 use crate::tab::Pane;
 use crate::ui::boundaries::Boundaries;
-use crate::ui::pane_boundaries_frame::FrameParams;
+use crate::ui::pane_boundaries_frame::{FrameParams, PaneBorderStyle};
 use crate::ClientId;
 use std::collections::{HashMap, HashSet};
-use zellij_utils::data::{client_id_to_colors, InputMode, PaletteColor, Style};
+use zellij_utils::data::{client_id_to_colors, InputMode, Style};
 use zellij_utils::errors::prelude::*;
 pub struct PaneContentsAndUi<'a> {
     pane: &'a mut Box<dyn Pane>,
@@ -226,7 +226,7 @@ impl<'a> PaneContentsAndUi<'a> {
             .collect();
         let pane_focused_for_differet_client = !other_focused_clients.is_empty();
 
-        let frame_color = self.frame_color(client_id, client_mode, session_is_mirrored);
+        let frame_style = self.frame_style(client_id, client_mode, session_is_mirrored);
         let highlight_tooltip = self.pane.cached_hover_tooltip();
         let focused_client = if pane_focused_for_client_id {
             Some(client_id)
@@ -241,7 +241,7 @@ impl<'a> PaneContentsAndUi<'a> {
                 is_main_client: pane_focused_for_client_id,
                 other_focused_clients: vec![],
                 style: self.style,
-                color: frame_color.map(|c| c.0),
+                border_style: frame_style.map(|style| style.0),
                 other_cursors_exist_in_session: false,
                 pane_is_stacked_over: self.pane_is_stacked_over,
                 pane_is_stacked_under: self.pane_is_stacked_under,
@@ -261,7 +261,7 @@ impl<'a> PaneContentsAndUi<'a> {
                 is_main_client: pane_focused_for_client_id,
                 other_focused_clients,
                 style: self.style,
-                color: frame_color.map(|c| c.0),
+                border_style: frame_style.map(|style| style.0),
                 other_cursors_exist_in_session: self.multiple_users_exist_in_session,
                 pane_is_stacked_over: self.pane_is_stacked_over,
                 pane_is_stacked_under: self.pane_is_stacked_under,
@@ -302,62 +302,63 @@ impl<'a> PaneContentsAndUi<'a> {
         pane_is_on_top_of_stack: bool,
         pane_is_on_bottom_of_stack: bool,
     ) {
-        let color = self.frame_color(client_id, client_mode, session_is_mirrored);
+        let border_style = self.frame_style(client_id, client_mode, session_is_mirrored);
         boundaries.add_rect(
             self.pane.as_ref(),
-            color,
+            border_style,
             pane_is_on_top_of_stack,
             pane_is_on_bottom_of_stack,
             self.pane_is_stacked_under,
         );
     }
-    fn frame_color(
+    fn frame_style(
         &self,
         client_id: ClientId,
         mode: InputMode,
         session_is_mirrored: bool,
-    ) -> Option<(PaletteColor, usize)> {
-        // (color, color_precedence) (the color_precedence is used
-        // for the no-pane-frames mode)
+    ) -> Option<(PaneBorderStyle, usize)> {
+        // (border_style, precedence) (precedence is used for the no-pane-frames mode)
         let pane_focused_for_client_id = self.focused_clients.contains(&client_id);
         let pane_is_in_group = self
             .current_pane_group
             .get(&client_id)
             .map(|p| p.contains(&self.pane.pid()))
             .unwrap_or(false);
-        if self.pane.frame_color_override().is_some() && !pane_is_in_group {
+        if self.pane.frame_style_override().is_some() && !pane_is_in_group {
             self.pane
-                .frame_color_override()
-                .map(|override_color| (override_color, 4))
+                .frame_style_override()
+                .map(|override_style| (override_style, 4))
         } else if pane_is_in_group && !pane_focused_for_client_id {
-            Some((self.style.colors.frame_highlight.emphasis_0, 2))
+            Some((PaneBorderStyle::foreground(self.style.colors.frame_highlight.emphasis_0), 2))
         } else if pane_is_in_group && pane_focused_for_client_id {
-            Some((self.style.colors.frame_highlight.emphasis_1, 3))
+            Some((PaneBorderStyle::foreground(self.style.colors.frame_highlight.emphasis_1), 3))
+        } else if self.pane.frame_style().is_some() {
+            self.pane.frame_style().map(|style| (style, 4))
         } else if pane_focused_for_client_id {
             match mode {
                 InputMode::Normal | InputMode::Locked => {
                     if session_is_mirrored || !self.multiple_users_exist_in_session {
-                        Some((self.style.colors.frame_selected.base, 3))
+                        Some((PaneBorderStyle::foreground(self.style.colors.frame_selected.base), 3))
                     } else {
                         let colors = client_id_to_colors(
                             client_id,
                             self.style.colors.multiplayer_user_colors,
                         );
-                        colors.map(|colors| (colors.0, 3))
+                        colors.map(|colors| (PaneBorderStyle::foreground(colors.0), 3))
                     }
                 },
-                _ => Some((self.style.colors.frame_highlight.base, 3)),
+                _ => Some((PaneBorderStyle::foreground(self.style.colors.frame_highlight.base), 3)),
             }
         } else if self
             .mouse_is_hovering_over_pane_for_clients
             .contains(&client_id)
         {
-            Some((self.style.colors.frame_highlight.base, 1))
+            Some((PaneBorderStyle::foreground(self.style.colors.frame_highlight.base), 1))
         } else {
             self.style
                 .colors
                 .frame_unselected
-                .map(|frame| (frame.base, 0))
+                .map(|frame| (PaneBorderStyle::foreground(frame.base), 0))
         }
     }
 }

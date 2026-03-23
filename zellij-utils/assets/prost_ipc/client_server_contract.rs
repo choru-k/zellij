@@ -343,6 +343,8 @@ pub mod action {
         HideFloatingPanes(super::HideFloatingPanesAction),
         #[prost(message, tag="108")]
         SetPaneColor(super::SetPaneColorAction),
+        #[prost(message, tag="135")]
+        SetPaneBorderStyle(super::SetPaneBorderStyleAction),
         #[prost(message, tag="109")]
         Paste(super::PasteAction),
         /// Pane-targeting
@@ -1200,6 +1202,16 @@ pub struct SetPaneBorderlessAction {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetPaneColorAction {
+    #[prost(message, optional, tag="1")]
+    pub pane_id: ::core::option::Option<PaneId>,
+    #[prost(string, optional, tag="2")]
+    pub fg: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="3")]
+    pub bg: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SetPaneBorderStyleAction {
     #[prost(message, optional, tag="1")]
     pub pane_id: ::core::option::Option<PaneId>,
     #[prost(string, optional, tag="2")]

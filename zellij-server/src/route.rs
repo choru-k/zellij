@@ -1769,6 +1769,16 @@ pub(crate) fn route_action(
                 ))
                 .with_context(err_context)?;
         },
+        Action::SetPaneBorderStyle { pane_id, fg, bg } => {
+            senders
+                .send_to_screen(ScreenInstruction::SetPaneBorderStyle(
+                    pane_id.into(),
+                    fg,
+                    bg,
+                    Some(NotificationEnd::new(completion_tx)),
+                ))
+                .with_context(err_context)?;
+        },
         Action::TogglePaneInGroup => {
             senders
                 .send_to_screen(ScreenInstruction::TogglePaneInGroup(

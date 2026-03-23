@@ -1585,6 +1585,22 @@ tail -f /tmp/my-live-logfile | zellij action pipe --name logs --plugin https://e
         #[clap(long, value_parser, conflicts_with_all(&["fg", "bg"]))]
         reset: bool,
     },
+    /// Set the border foreground/background style of a pane
+    SetPaneBorderStyle {
+        /// The pane_id of the pane, eg. terminal_1, plugin_2 or 3 (equivalent to terminal_3).
+        /// Defaults to $ZELLIJ_PANE_ID if not provided.
+        #[clap(short, long, value_parser)]
+        pane_id: Option<String>,
+        /// Border foreground color (e.g. "#00e000", "rgb:00/e0/00")
+        #[clap(long, value_parser, conflicts_with("reset"))]
+        fg: Option<String>,
+        /// Border background color (e.g. "#001a3a", "rgb:00/1a/3a")
+        #[clap(long, value_parser, conflicts_with("reset"))]
+        bg: Option<String>,
+        /// Reset the pane border style to the theme default behavior
+        #[clap(long, value_parser, conflicts_with_all(&["fg", "bg"]))]
+        reset: bool,
+    },
 }
 
 #[cfg(test)]
@@ -1657,5 +1673,118 @@ mod tests {
     fn subscribe_requires_pane_id() {
         let result = CliArgs::try_parse_from(["zellij", "subscribe"]);
         assert!(result.is_err());
+    }
+
+    fn parse_action(args: &[&str]) -> CliAction {
+        let mut full_args = vec!["zellij"];
+        full_args.extend_from_slice(args);
+        let cli = CliArgs::try_parse_from(full_args).unwrap();
+        match cli.command {
+            Some(Command::Action(action)) => *action,
+            other => panic!("Expected Action, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn action_toggle_pane_borderless_parses() {
+        let action = parse_action(&["action", "toggle-pane-borderless", "--pane-id", "terminal_1"]);
+        match action {
+            CliAction::TogglePaneBorderless { pane_id } => assert_eq!(pane_id, "terminal_1"),
+            other => panic!("Expected TogglePaneBorderless, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn action_set_pane_borderless_parses() {
+        let action = parse_action(&[
+            "action",
+            "set-pane-borderless",
+            "--pane-id",
+            "plugin_2",
+            "--borderless",
+        ]);
+        match action {
+            CliAction::SetPaneBorderless {
+                pane_id,
+                borderless,
+            } => {
+                assert_eq!(pane_id, "plugin_2");
+                assert!(borderless);
+            },
+            other => panic!("Expected SetPaneBorderless, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn action_set_pane_border_style_parses() {
+        let action = parse_action(&[
+            "action",
+            "set-pane-border-style",
+            "--pane-id",
+            "plugin_3",
+            "--fg",
+            "#00e000",
+            "--bg",
+            "#001a3a",
+        ]);
+        match action {
+            CliAction::SetPaneBorderStyle {
+                pane_id,
+                fg,
+                bg,
+                reset,
+            } => {
+                assert_eq!(pane_id, Some("plugin_3".to_string()));
+                assert_eq!(fg, Some("#00e000".to_string()));
+                assert_eq!(bg, Some("#001a3a".to_string()));
+                assert!(!reset);
+            },
+            other => panic!("Expected SetPaneBorderStyle, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn action_set_pane_border_style_bg_only_parses() {
+        let action = parse_action(&[
+            "action",
+            "set-pane-border-style",
+            "--pane-id",
+            "plugin_4",
+            "--bg",
+            "#001a3a",
+        ]);
+        match action {
+            CliAction::SetPaneBorderStyle {
+                pane_id,
+                fg,
+                bg,
+                reset,
+            } => {
+                assert_eq!(pane_id, Some("plugin_4".to_string()));
+                assert_eq!(fg, None);
+                assert_eq!(bg, Some("#001a3a".to_string()));
+                assert!(!reset);
+            },
+            other => panic!("Expected SetPaneBorderStyle, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn action_set_pane_border_style_reset_parses() {
+        let action = parse_action(&["action", "set-pane-border-style", "--reset"]);
+        match action {
+            CliAction::SetPaneBorderStyle {
+                pane_id,
+                fg,
+                bg,
+                reset,
+            } => {
+                assert_eq!(pane_id, None);
+                assert_eq!(fg, None);
+                assert_eq!(bg, None);
+                assert!(reset);
+            },
+            other => panic!("Expected SetPaneBorderStyle, got {:?}", other),
+        }
     }
 }

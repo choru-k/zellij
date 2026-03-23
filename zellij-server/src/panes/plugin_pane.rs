@@ -13,7 +13,7 @@ use crate::pty::VteBytes;
 use crate::tab::{AdjustedInput, Pane};
 use crate::ui::{
     loading_indication::LoadingIndication,
-    pane_boundaries_frame::{FrameParams, PaneFrame},
+    pane_boundaries_frame::{FrameParams, PaneBorderStyle, PaneFrame},
 };
 use crate::ClientId;
 use std::cell::RefCell;
@@ -97,7 +97,8 @@ pub(crate) struct PluginPane {
     frame: HashMap<ClientId, PaneFrame>,
     borderless: bool,
     exclude_from_sync: bool,
-    pane_frame_color_override: Option<(PaletteColor, Option<String>)>,
+    pane_frame_style: Option<PaneBorderStyle>,
+    pane_frame_style_override: Option<(PaneBorderStyle, Option<String>)>,
     invoked_with: Option<Run>,
     loading_indication: LoadingIndication,
     requesting_permissions: Option<PluginPermission>,
@@ -154,7 +155,8 @@ impl PluginPane {
             grids: HashMap::new(),
             cursor_visibility: HashMap::new(),
             style,
-            pane_frame_color_override: None,
+            pane_frame_style: None,
+            pane_frame_style_override: None,
             invoked_with,
             loading_indication,
             requesting_permissions: None,
@@ -432,9 +434,9 @@ impl Pane for PluginPane {
         let grid = get_or_create_grid!(self, client_id);
         let err_context = || format!("failed to render frame for client {client_id}");
         let pane_title = if let Some(text_color_override) = self
-            .pane_frame_color_override
+            .pane_frame_style_override
             .as_ref()
-            .and_then(|(_color, text)| text.as_ref())
+            .and_then(|(_style, text)| text.as_ref())
         {
             text_color_override.into()
         } else if self.pane_name.is_empty()
@@ -458,8 +460,8 @@ impl Pane for PluginPane {
             frame_params,
         )
         .is_pinned(is_pinned);
-        if let Some((frame_color_override, _text)) = self.pane_frame_color_override.as_ref() {
-            frame.override_color(*frame_color_override);
+        if let Some((frame_style_override, _text)) = self.pane_frame_style_override.as_ref() {
+            frame.override_style(*frame_style_override);
         }
 
         let res = match self.frame.get(&client_id) {
@@ -725,25 +727,38 @@ impl Pane for PluginPane {
             )]))
             .unwrap();
     }
-    fn add_red_pane_frame_color_override(&mut self, error_text: Option<String>) {
-        self.pane_frame_color_override = Some((self.style.colors.exit_code_error.base, error_text));
+    fn set_pane_frame_style(&mut self, border_style: Option<PaneBorderStyle>) {
+        self.pane_frame_style = border_style;
+        self.set_should_render(true);
     }
-    fn add_highlight_pane_frame_color_override(
+    fn add_red_pane_frame_style_override(&mut self, error_text: Option<String>) {
+        self.pane_frame_style_override = Some((
+            PaneBorderStyle::foreground(self.style.colors.exit_code_error.base),
+            error_text,
+        ));
+    }
+    fn add_highlight_pane_frame_style_override(
         &mut self,
         text: Option<String>,
         _client_id: Option<ClientId>,
     ) {
         // TODO: if we have a client_id, we should only highlight the frame for this client
-        self.pane_frame_color_override = Some((self.style.colors.frame_highlight.base, text));
+        self.pane_frame_style_override = Some((
+            PaneBorderStyle::foreground(self.style.colors.frame_highlight.base),
+            text,
+        ));
     }
-    fn clear_pane_frame_color_override(&mut self, _client_id: Option<ClientId>) {
+    fn clear_pane_frame_style_override(&mut self, _client_id: Option<ClientId>) {
         // TODO: if we have a client_id, we should only clear the highlight for this client
-        self.pane_frame_color_override = None;
+        self.pane_frame_style_override = None;
     }
-    fn frame_color_override(&self) -> Option<PaletteColor> {
-        self.pane_frame_color_override
+    fn frame_style_override(&self) -> Option<PaneBorderStyle> {
+        self.pane_frame_style_override
             .as_ref()
-            .map(|(color, _text)| *color)
+            .map(|(style, _text)| *style)
+    }
+    fn frame_style(&self) -> Option<PaneBorderStyle> {
+        self.pane_frame_style
     }
     fn invoked_with(&self) -> &Option<Run> {
         &self.invoked_with
