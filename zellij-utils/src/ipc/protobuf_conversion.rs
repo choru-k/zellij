@@ -609,7 +609,7 @@ impl From<crate::input::options::Options>
     fn from(options: crate::input::options::Options) -> Self {
         use crate::client_server_contract::client_server_contract::{
             Clipboard as ProtoClipboard, OnForceClose as ProtoOnForceClose,
-            WebSharing as ProtoWebSharing,
+            StackDirection as ProtoStackDirection, WebSharing as ProtoWebSharing,
         };
 
         Self {
@@ -660,6 +660,16 @@ impl From<crate::input::options::Options>
                 crate::data::WebSharing::Disabled => ProtoWebSharing::Disabled as i32,
             }),
             stacked_resize: options.stacked_resize,
+            stacked_pane_direction: options.stacked_pane_direction.map(
+                |direction| match direction {
+                    crate::input::options::StackedPaneDirection::Horizontal => {
+                        ProtoStackDirection::Horizontal as i32
+                    },
+                    crate::input::options::StackedPaneDirection::Vertical => {
+                        ProtoStackDirection::Vertical as i32
+                    },
+                },
+            ),
             show_startup_tips: options.show_startup_tips,
             show_release_notes: options.show_release_notes,
             advanced_mouse_actions: options.advanced_mouse_actions,
@@ -691,7 +701,7 @@ impl TryFrom<crate::client_server_contract::client_server_contract::Options>
     ) -> Result<Self> {
         use crate::client_server_contract::client_server_contract::{
             Clipboard as ProtoClipboard, OnForceClose as ProtoOnForceClose,
-            WebSharing as ProtoWebSharing,
+            StackDirection as ProtoStackDirection, WebSharing as ProtoWebSharing,
         };
 
         Ok(Self {
@@ -755,6 +765,18 @@ impl TryFrom<crate::client_server_contract::client_server_contract::Options>
                 })
                 .transpose()?,
             stacked_resize: options.stacked_resize,
+            stacked_pane_direction: options
+                .stacked_pane_direction
+                .map(|direction| match ProtoStackDirection::from_i32(direction) {
+                    Some(ProtoStackDirection::Horizontal) => {
+                        Ok(crate::input::options::StackedPaneDirection::Horizontal)
+                    },
+                    Some(ProtoStackDirection::Vertical) => {
+                        Ok(crate::input::options::StackedPaneDirection::Vertical)
+                    },
+                    _ => Err(anyhow!("Invalid StackDirection value: {}", direction)),
+                })
+                .transpose()?,
             show_startup_tips: options.show_startup_tips,
             show_release_notes: options.show_release_notes,
             advanced_mouse_actions: options.advanced_mouse_actions,

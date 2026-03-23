@@ -23,6 +23,7 @@ use zellij_utils::input::layout::{
     SwapTiledLayout, TiledPaneLayout,
 };
 use zellij_utils::input::mouse::MouseEvent;
+use zellij_utils::input::options::StackedPaneDirection;
 use zellij_utils::ipc::IpcReceiverWithContext;
 use zellij_utils::pane_size::{Size, SizeInPixels};
 use zellij_utils::position::Position;
@@ -289,6 +290,10 @@ fn create_new_tab(size: Size, default_mode: ModeInfo) -> Tab {
     )
     .unwrap();
     tab
+}
+
+fn enable_horizontal_stacked_panes(tab: &mut Tab) {
+    tab.update_stacked_pane_direction(StackedPaneDirection::Horizontal);
 }
 
 fn create_new_tab_without_pane_frames(size: Size, default_mode: ModeInfo) -> Tab {
@@ -1201,6 +1206,7 @@ fn render_stacks_without_pane_frames() {
     };
     let client_id = 1;
     let mut tab = create_new_tab_without_pane_frames(size, ModeInfo::default());
+    enable_horizontal_stacked_panes(&mut tab);
     let mut output = Output::default();
     for i in 2..4 {
         let new_pane_id_1 = PaneId::Terminal(i);
@@ -7213,6 +7219,7 @@ fn focus_stacked_pane_over_flexible_pane_with_the_mouse() {
         true,
         stacked_resize,
     );
+    enable_horizontal_stacked_panes(&mut tab);
     let new_pane_id_1 = PaneId::Terminal(2);
     let new_pane_id_2 = PaneId::Terminal(3);
     let new_pane_id_3 = PaneId::Terminal(4);
@@ -7327,6 +7334,7 @@ fn focus_stacked_pane_under_flexible_pane_with_the_mouse() {
         true,
         stacked_resize,
     );
+    enable_horizontal_stacked_panes(&mut tab);
     let new_pane_id_1 = PaneId::Terminal(2);
     let new_pane_id_2 = PaneId::Terminal(3);
     let new_pane_id_3 = PaneId::Terminal(4);

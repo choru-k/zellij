@@ -12,7 +12,7 @@ use crate::input::keybinds::Keybinds;
 use crate::input::layout::{
     Layout, PercentOrFixed, PluginUserConfiguration, RunPlugin, RunPluginOrAlias, TabLayoutInfo,
 };
-use crate::input::options::{Clipboard, OnForceClose, Options};
+use crate::input::options::{Clipboard, OnForceClose, Options, StackedPaneDirection};
 use crate::input::permission::{GrantedPermission, PermissionCache};
 use crate::input::plugins::PluginAliases;
 use crate::input::theme::{FrameConfig, Theme, Themes, UiConfig};
@@ -2744,6 +2744,19 @@ impl Options {
             };
         let stacked_resize =
             kdl_property_first_arg_as_bool_or_error!(kdl_options, "stacked_resize").map(|(v, _)| v);
+        let stacked_pane_direction =
+            match kdl_property_first_arg_as_string_or_error!(kdl_options, "stacked_pane_direction")
+            {
+                Some((string, entry)) => {
+                    Some(StackedPaneDirection::from_str(string).map_err(|_| {
+                        kdl_parsing_error!(
+                            format!("Invalid value for stacked_pane_direction: '{}'", string),
+                            entry
+                        )
+                    })?)
+                },
+                None => None,
+            };
         let show_startup_tips =
             kdl_property_first_arg_as_bool_or_error!(kdl_options, "show_startup_tips")
                 .map(|(v, _)| v);
@@ -2837,6 +2850,7 @@ impl Options {
             web_server,
             web_sharing,
             stacked_resize,
+            stacked_pane_direction,
             show_startup_tips,
             show_release_notes,
             advanced_mouse_actions,
@@ -3871,6 +3885,40 @@ impl Options {
             None
         }
     }
+    fn stacked_pane_direction_to_kdl(&self, add_comments: bool) -> Option<KdlNode> {
+        let comment_text = format!(
+            "{}\n{}\n{}\n{}\n{}",
+            " ",
+            "// How to display stacked panes",
+            "// Possible values: \"vertical\" or \"horizontal\"",
+            "// Default: \"vertical\"",
+            "// ",
+        );
+
+        let create_node = |node_value: &str| -> KdlNode {
+            let mut node = KdlNode::new("stacked_pane_direction");
+            node.push(node_value.to_owned());
+            node
+        };
+
+        if let Some(stacked_pane_direction) = &self.stacked_pane_direction {
+            let mut node = match stacked_pane_direction {
+                StackedPaneDirection::Vertical => create_node("vertical"),
+                StackedPaneDirection::Horizontal => create_node("horizontal"),
+            };
+            if add_comments {
+                node.set_leading(format!("{}\n", comment_text));
+            }
+            Some(node)
+        } else if add_comments {
+            let mut node = create_node("vertical");
+            node.set_leading(format!("{}\n// ", comment_text));
+            Some(node)
+        } else {
+            None
+        }
+    }
+
     fn show_startup_tips_to_kdl(&self, add_comments: bool) -> Option<KdlNode> {
         let comment_text = format!(
             "{}\n{}\n{}\n{}",
@@ -4275,6 +4323,9 @@ impl Options {
         }
         if let Some(stacked_resize) = self.stacked_resize_to_kdl(add_comments) {
             nodes.push(stacked_resize);
+        }
+        if let Some(stacked_pane_direction) = self.stacked_pane_direction_to_kdl(add_comments) {
+            nodes.push(stacked_pane_direction);
         }
         if let Some(show_startup_tips) = self.show_startup_tips_to_kdl(add_comments) {
             nodes.push(show_startup_tips);

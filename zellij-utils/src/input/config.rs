@@ -584,7 +584,7 @@ mod config_test {
     use super::*;
     use crate::data::{InputMode, Palette, PaletteColor, StyleDeclaration, Styling};
     use crate::input::layout::RunPlugin;
-    use crate::input::options::{Clipboard, OnForceClose};
+    use crate::input::options::{Clipboard, OnForceClose, StackedPaneDirection};
     use crate::input::theme::{FrameConfig, Theme, Themes, UiConfig};
     use std::collections::{BTreeMap, HashMap};
     use std::io::Write;
@@ -669,6 +669,7 @@ mod config_test {
             scrollback_editor "/path/to/my/scrollback-editor"
             session_name "my awesome session"
             attach_to_session true
+            stacked_pane_direction "horizontal"
         "#;
         let config = Config::from_kdl(config_contents, None).unwrap();
         assert_eq!(
@@ -764,6 +765,11 @@ mod config_test {
         assert_eq!(
             config.options.attach_to_session,
             Some(true),
+            "Option set in config"
+        );
+        assert_eq!(
+            config.options.stacked_pane_direction,
+            Some(StackedPaneDirection::Horizontal),
             "Option set in config"
         );
     }

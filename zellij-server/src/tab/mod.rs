@@ -21,6 +21,7 @@ use zellij_utils::data::{
 use zellij_utils::errors::prelude::*;
 use zellij_utils::input::command::RunCommand;
 use zellij_utils::input::mouse::MouseEvent;
+use zellij_utils::input::options::StackedPaneDirection;
 use zellij_utils::position::Position;
 use zellij_utils::position::{Column, Line};
 use zellij_utils::shared::clean_string_from_control_and_linebreak;
@@ -4724,6 +4725,13 @@ impl Tab {
         self.set_should_clear_display_before_rendering();
         self.set_force_render();
     }
+    pub fn update_stacked_pane_direction(&mut self, stacked_pane_direction: StackedPaneDirection) {
+        self.tiled_panes
+            .update_stacked_pane_direction(stacked_pane_direction);
+        self.set_should_clear_display_before_rendering();
+        self.set_force_render();
+    }
+
     pub fn panes_to_hide_count(&self) -> usize {
         self.tiled_panes.panes_to_hide_count()
     }

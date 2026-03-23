@@ -34,6 +34,32 @@ impl FromStr for OnForceClose {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize, ArgEnum)]
+pub enum StackedPaneDirection {
+    #[serde(alias = "vertical")]
+    Vertical,
+    #[serde(alias = "horizontal")]
+    Horizontal,
+}
+
+impl Default for StackedPaneDirection {
+    fn default() -> Self {
+        Self::Vertical
+    }
+}
+
+impl FromStr for StackedPaneDirection {
+    type Err = Box<dyn std::error::Error>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "vertical" => Ok(Self::Vertical),
+            "horizontal" => Ok(Self::Horizontal),
+            e => Err(e.to_string().into()),
+        }
+    }
+}
+
 #[derive(Clone, Default, Debug, PartialEq, Deserialize, Serialize, Args)]
 /// Options that can be set either through the config file,
 /// or cli flags - cli flags should take precedence over the config file
@@ -207,6 +233,12 @@ pub struct Options {
     #[serde(default)]
     pub stacked_resize: Option<bool>,
 
+    /// How to display stacked panes (vertical or horizontal)
+    /// default is vertical
+    #[clap(long, arg_enum, hide_possible_values = true, value_parser)]
+    #[serde(default)]
+    pub stacked_pane_direction: Option<StackedPaneDirection>,
+
     /// Whether to show startup tips when starting a new session
     /// default is true
     #[clap(long, value_parser)]
@@ -350,6 +382,7 @@ impl Options {
         let web_server = other.web_server.or(self.web_server);
         let web_sharing = other.web_sharing.or(self.web_sharing);
         let stacked_resize = other.stacked_resize.or(self.stacked_resize);
+        let stacked_pane_direction = other.stacked_pane_direction.or(self.stacked_pane_direction);
         let show_startup_tips = other.show_startup_tips.or(self.show_startup_tips);
         let show_release_notes = other.show_release_notes.or(self.show_release_notes);
         let advanced_mouse_actions = other.advanced_mouse_actions.or(self.advanced_mouse_actions);
@@ -405,6 +438,7 @@ impl Options {
             web_server,
             web_sharing,
             stacked_resize,
+            stacked_pane_direction,
             show_startup_tips,
             show_release_notes,
             advanced_mouse_actions,
@@ -481,6 +515,7 @@ impl Options {
         let web_server = other.web_server.or(self.web_server);
         let web_sharing = other.web_sharing.or(self.web_sharing);
         let stacked_resize = other.stacked_resize.or(self.stacked_resize);
+        let stacked_pane_direction = other.stacked_pane_direction.or(self.stacked_pane_direction);
         let show_startup_tips = other.show_startup_tips.or(self.show_startup_tips);
         let show_release_notes = other.show_release_notes.or(self.show_release_notes);
         let advanced_mouse_actions = other.advanced_mouse_actions.or(self.advanced_mouse_actions);
@@ -536,6 +571,7 @@ impl Options {
             web_server,
             web_sharing,
             stacked_resize,
+            stacked_pane_direction,
             show_startup_tips,
             show_release_notes,
             advanced_mouse_actions,

@@ -23,6 +23,7 @@ use zellij_utils::{
     input::{
         command::RunCommand,
         layout::{Run, RunPluginOrAlias, SplitDirection},
+        options::StackedPaneDirection,
     },
     pane_size::{Offset, PaneGeom, Size, SizeInPixels, Viewport},
     position::Position,
@@ -63,6 +64,7 @@ pub struct TiledPanes {
     mode_info: Rc<RefCell<HashMap<ClientId, ModeInfo>>>,
     character_cell_size: Rc<RefCell<Option<SizeInPixels>>>,
     stacked_resize: Rc<RefCell<bool>>,
+    stacked_pane_direction: StackedPaneDirection,
     default_mode_info: ModeInfo,
     style: Style,
     session_is_mirrored: bool,
@@ -103,6 +105,7 @@ impl TiledPanes {
             mode_info,
             character_cell_size,
             stacked_resize,
+            stacked_pane_direction: StackedPaneDirection::Vertical,
             default_mode_info,
             style,
             session_is_mirrored,
@@ -546,6 +549,9 @@ impl TiledPanes {
     pub fn reapply_pane_frames(&mut self) {
         // same as set_pane_frames except it reapplies the current situation
         self.set_pane_frames(self.draw_pane_frames);
+    }
+    pub fn update_stacked_pane_direction(&mut self, stacked_pane_direction: StackedPaneDirection) {
+        self.stacked_pane_direction = stacked_pane_direction;
     }
     pub fn set_pane_frames(&mut self, draw_pane_frames: bool) {
         self.draw_pane_frames = draw_pane_frames;
@@ -1000,6 +1006,10 @@ impl TiledPanes {
         !self.panes.is_empty()
     }
     fn stacked_pane_headers(&self) -> HashMap<PaneId, StackedPaneHeader> {
+        if self.stacked_pane_direction != StackedPaneDirection::Horizontal {
+            return HashMap::new();
+        }
+
         let mut panes_by_stack: HashMap<usize, Vec<(PaneId, PaneGeom, String)>> = HashMap::new();
 
         for (pane_id, pane) in self.panes.iter() {

@@ -18,7 +18,7 @@ use zellij_utils::input::layout::{
     RunPlugin, RunPluginLocation, RunPluginOrAlias, SplitDirection, TiledPaneLayout,
 };
 use zellij_utils::input::mouse::MouseEvent;
-use zellij_utils::input::options::Options;
+use zellij_utils::input::options::{Options, StackedPaneDirection};
 use zellij_utils::ipc::IpcReceiverWithContext;
 use zellij_utils::pane_size::{Size, SizeInPixels};
 use zellij_utils::position::Position;
@@ -316,6 +316,7 @@ fn create_new_screen(
         layout_dir,
         explicitly_disable_kitty_keyboard_protocol,
         stacked_resize,
+        StackedPaneDirection::Vertical,
         None,
         false,
         web_sharing,
@@ -5221,6 +5222,7 @@ fn create_new_screen_with_message_capture(
         layout_dir,
         explicitly_disable_kitty_keyboard_protocol,
         stacked_resize,
+        StackedPaneDirection::Vertical,
         None,
         false,
         web_sharing,
