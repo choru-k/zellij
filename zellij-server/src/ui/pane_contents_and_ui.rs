@@ -1,12 +1,108 @@
-use crate::output::Output;
-use crate::panes::PaneId;
+use crate::output::{CharacterChunk, Output};
+use crate::panes::{AnsiCode, PaneId, RcCharacterStyles, TerminalCharacter};
 use crate::tab::Pane;
-use crate::ui::boundaries::Boundaries;
+use crate::ui::boundaries::{boundary_type, Boundaries};
 use crate::ui::pane_boundaries_frame::FrameParams;
 use crate::ClientId;
 use std::collections::{HashMap, HashSet};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use zellij_utils::data::{client_id_to_colors, InputMode, PaletteColor, Style};
 use zellij_utils::errors::prelude::*;
+use zellij_utils::pane_size::PaneGeom;
+#[derive(Clone, Debug)]
+pub struct StackedPaneTab {
+    pub pane_id: PaneId,
+    pub title: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct StackedPaneHeader {
+    pub full_stack_geom: PaneGeom,
+    pub expanded_pane_id: PaneId,
+    pub tabs: Vec<StackedPaneTab>,
+}
+
+impl StackedPaneHeader {
+    pub fn expanded_pane_id(&self) -> Option<PaneId> {
+        Some(self.expanded_pane_id)
+    }
+
+    fn visible_tab_count(&self) -> usize {
+        let inner_width = self.full_stack_geom.cols.as_usize().saturating_sub(2);
+        let mut visible_tab_count = self.tabs.len();
+
+        while visible_tab_count > 0 {
+            let minimum_width_for_visible_tabs = visible_tab_count.saturating_mul(2) + 1;
+            if minimum_width_for_visible_tabs <= inner_width {
+                break;
+            }
+            visible_tab_count -= 1;
+        }
+        visible_tab_count
+    }
+
+    fn tab_label_widths(&self, visible_tab_count: usize) -> Vec<usize> {
+        if visible_tab_count == 0 {
+            return vec![];
+        }
+
+        let inner_width = self.full_stack_geom.cols.as_usize().saturating_sub(2);
+        let available_label_width = inner_width.saturating_sub(visible_tab_count + 1);
+        let ideal_widths: Vec<usize> = self
+            .tabs
+            .iter()
+            .take(visible_tab_count)
+            .map(|tab| tab.title.width() + 2)
+            .collect();
+        let mut label_widths = vec![1; visible_tab_count];
+        let mut remaining_width = available_label_width.saturating_sub(visible_tab_count);
+
+        while remaining_width > 0 {
+            let mut widened_a_tab = false;
+            for (label_width, ideal_width) in label_widths.iter_mut().zip(ideal_widths.iter()) {
+                if *label_width < *ideal_width {
+                    *label_width += 1;
+                    remaining_width -= 1;
+                    widened_a_tab = true;
+                }
+                if remaining_width == 0 {
+                    break;
+                }
+            }
+            if !widened_a_tab {
+                break;
+            }
+        }
+        label_widths
+    }
+
+    pub fn tab_boundaries(&self) -> Vec<(PaneId, usize, usize)> {
+        let visible_tab_count = self.visible_tab_count();
+        let tab_label_widths = self.tab_label_widths(visible_tab_count);
+        let mut start = 0;
+
+        self.tabs
+            .iter()
+            .take(visible_tab_count)
+            .zip(tab_label_widths)
+            .enumerate()
+            .map(|(i, (tab, label_width))| {
+                let end = start + 1 + label_width + usize::from(i + 1 == visible_tab_count);
+                let boundary = (tab.pane_id, start, end);
+                start = end;
+                boundary
+            })
+            .collect()
+    }
+
+    pub fn pane_id_at(&self, column: usize) -> Option<PaneId> {
+        self.tab_boundaries()
+            .into_iter()
+            .find(|(_pane_id, start, end)| column >= *start && column < *end)
+            .map(|(pane_id, _start, _end)| pane_id)
+    }
+}
+
 pub struct PaneContentsAndUi<'a> {
     pane: &'a mut Box<dyn Pane>,
     output: &'a mut Output,
@@ -20,6 +116,21 @@ pub struct PaneContentsAndUi<'a> {
     mouse_is_hovering_over_pane_for_clients: HashSet<ClientId>,
     current_pane_group: HashMap<ClientId, Vec<PaneId>>,
     show_help_text: bool,
+}
+
+fn styled_characters(characters: &str, color: Option<PaletteColor>) -> Vec<TerminalCharacter> {
+    let mut colored_string = Vec::new();
+    for character in characters.chars() {
+        let mut styles = RcCharacterStyles::reset();
+        styles.update(|styles| {
+            styles.bold = Some(AnsiCode::On);
+            if let Some(palette_color) = color {
+                styles.foreground = Some(AnsiCode::from(palette_color));
+            }
+        });
+        colored_string.push(TerminalCharacter::new_styled(character, styles));
+    }
+    colored_string
 }
 
 impl<'a> PaneContentsAndUi<'a> {
@@ -293,6 +404,170 @@ impl<'a> PaneContentsAndUi<'a> {
 
         Ok(())
     }
+    pub fn render_stacked_pane_header(
+        &mut self,
+        client_id: ClientId,
+        client_mode: InputMode,
+        session_is_mirrored: bool,
+        stacked_pane_header: &StackedPaneHeader,
+        selected_pane_id: Option<PaneId>,
+    ) -> Result<()> {
+        let color = self
+            .frame_color(client_id, client_mode, session_is_mirrored)
+            .map(|(color, _precedence)| color);
+        let header_line =
+            self.stacked_pane_header_line(stacked_pane_header, color, selected_pane_id);
+        self.output
+            .add_character_chunks_to_client(
+                client_id,
+                vec![CharacterChunk::new(
+                    header_line,
+                    stacked_pane_header.full_stack_geom.x,
+                    stacked_pane_header.full_stack_geom.y,
+                )],
+                self.z_index,
+            )
+            .with_context(|| format!("failed to render stacked pane header for client {client_id}"))
+    }
+
+    fn stacked_pane_header_line(
+        &self,
+        stacked_pane_header: &StackedPaneHeader,
+        color: Option<PaletteColor>,
+        selected_pane_id: Option<PaneId>,
+    ) -> Vec<TerminalCharacter> {
+        let total_width = stacked_pane_header.full_stack_geom.cols.as_usize();
+        let inner_width = total_width.saturating_sub(2);
+        let left_boundary = if self.should_draw_pane_frames {
+            if self.style.rounded_corners {
+                boundary_type::TOP_LEFT_ROUND
+            } else {
+                boundary_type::TOP_LEFT
+            }
+        } else {
+            boundary_type::HORIZONTAL
+        };
+        let right_boundary = if self.should_draw_pane_frames {
+            if self.style.rounded_corners {
+                boundary_type::TOP_RIGHT_ROUND
+            } else {
+                boundary_type::TOP_RIGHT
+            }
+        } else {
+            boundary_type::HORIZONTAL
+        };
+        let tab_boundaries = stacked_pane_header.tab_boundaries();
+        let mut line = styled_characters(left_boundary, color);
+        let mut rendered_columns = 0;
+
+        for (i, (tab, (_pane_id, start, end))) in stacked_pane_header
+            .tabs
+            .iter()
+            .zip(tab_boundaries.iter())
+            .enumerate()
+        {
+            if *start > rendered_columns {
+                let filler = boundary_type::HORIZONTAL.repeat(*start - rendered_columns);
+                line.append(&mut styled_characters(&filler, color));
+            }
+
+            let include_trailing_separator = i + 1 == tab_boundaries.len();
+            let label_width = end
+                .saturating_sub(*start)
+                .saturating_sub(1 + usize::from(include_trailing_separator));
+            let segment = self.stacked_pane_header_segment(
+                &tab.title,
+                label_width,
+                selected_pane_id == Some(tab.pane_id),
+                include_trailing_separator,
+            );
+            line.append(&mut styled_characters(&segment, color));
+            rendered_columns = *end;
+        }
+
+        if inner_width > rendered_columns {
+            let filler = boundary_type::HORIZONTAL.repeat(inner_width - rendered_columns);
+            line.append(&mut styled_characters(&filler, color));
+        }
+        line.append(&mut styled_characters(right_boundary, color));
+        line
+    }
+
+    fn stacked_pane_header_segment(
+        &self,
+        title: &str,
+        label_width: usize,
+        is_selected: bool,
+        include_trailing_separator: bool,
+    ) -> String {
+        let label = self.stacked_pane_label(title, label_width, is_selected);
+        let right_padding = label_width.saturating_sub(label.width());
+        let trailing_separator = if include_trailing_separator {
+            boundary_type::VERTICAL
+        } else {
+            ""
+        };
+
+        format!(
+            "{}{}{}{}",
+            boundary_type::VERTICAL,
+            label,
+            boundary_type::HORIZONTAL.repeat(right_padding),
+            trailing_separator,
+        )
+    }
+
+    fn stacked_pane_label(&self, title: &str, width: usize, is_selected: bool) -> String {
+        if width == 0 {
+            return String::new();
+        }
+
+        if is_selected {
+            if width == 1 {
+                return "…".to_owned();
+            }
+            let truncated_title = self.truncate_to_width(title, width.saturating_sub(2));
+            let wrapped_title = format!("[{}]", truncated_title);
+            if wrapped_title.width() <= width {
+                wrapped_title
+            } else {
+                self.truncate_to_width(&wrapped_title, width)
+            }
+        } else {
+            let padded_title = format!(" {} ", title);
+            if padded_title.width() <= width {
+                padded_title
+            } else {
+                self.truncate_to_width(title, width)
+            }
+        }
+    }
+
+    fn truncate_to_width(&self, text: &str, width: usize) -> String {
+        if width == 0 {
+            return String::new();
+        }
+        if text.width() <= width {
+            return text.to_owned();
+        }
+        if width == 1 {
+            return "…".to_owned();
+        }
+
+        let mut truncated = String::new();
+        let mut current_width = 0;
+        for character in text.chars() {
+            let character_width = character.width().unwrap_or(0);
+            if current_width + character_width + 1 > width {
+                break;
+            }
+            truncated.push(character);
+            current_width += character_width;
+        }
+        truncated.push('…');
+        truncated
+    }
+
     pub fn render_pane_boundaries(
         &self,
         client_id: ClientId,

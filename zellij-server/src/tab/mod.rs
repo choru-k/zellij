@@ -4486,6 +4486,10 @@ impl Tab {
             return Ok(self.tiled_panes.get_active_pane_id(first_client_id));
         }
 
+        if let Some(stacked_pane_id) = self.tiled_panes.stacked_pane_id_at_position(point) {
+            return Ok(Some(stacked_pane_id));
+        }
+
         let (stacked_pane_ids_under_flexible_pane, _stacked_pane_ids_over_flexible_pane) = {
             self.tiled_panes
                 .stacked_pane_ids_under_and_over_flexible_panes()
