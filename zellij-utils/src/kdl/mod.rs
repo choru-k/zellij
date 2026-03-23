@@ -12,7 +12,10 @@ use crate::input::keybinds::Keybinds;
 use crate::input::layout::{
     Layout, PercentOrFixed, PluginUserConfiguration, RunPlugin, RunPluginOrAlias, TabLayoutInfo,
 };
-use crate::input::options::{Clipboard, OnForceClose, Options, StackedPaneDirection};
+use crate::input::options::{
+    Clipboard, OnForceClose, Options, StackedPaneDirection, StackedPaneHeaderConfig,
+    StackedPaneHeaderFallback, StackedPaneHeaderSource,
+};
 use crate::input::permission::{GrantedPermission, PermissionCache};
 use crate::input::plugins::PluginAliases;
 use crate::input::theme::{FrameConfig, Theme, Themes, UiConfig};
@@ -2757,6 +2760,12 @@ impl Options {
                 },
                 None => None,
             };
+        let stacked_pane_header = match kdl_options.get("stacked_pane_header") {
+            Some(stacked_pane_header) => {
+                Some(StackedPaneHeaderConfig::from_kdl_node(stacked_pane_header)?)
+            },
+            None => None,
+        };
         let show_startup_tips =
             kdl_property_first_arg_as_bool_or_error!(kdl_options, "show_startup_tips")
                 .map(|(v, _)| v);
@@ -2851,6 +2860,7 @@ impl Options {
             web_sharing,
             stacked_resize,
             stacked_pane_direction,
+            stacked_pane_header,
             show_startup_tips,
             show_release_notes,
             advanced_mouse_actions,
@@ -3919,6 +3929,15 @@ impl Options {
         }
     }
 
+    fn stacked_pane_header_to_kdl(&self, add_comments: bool) -> Option<KdlNode> {
+        match &self.stacked_pane_header {
+            Some(stacked_pane_header) => Some(stacked_pane_header.to_kdl_node(add_comments)),
+            None if add_comments => Some(StackedPaneHeaderConfig::default().to_kdl_node(true)),
+            None => None,
+        }
+    }
+
+
     fn show_startup_tips_to_kdl(&self, add_comments: bool) -> Option<KdlNode> {
         let comment_text = format!(
             "{}\n{}\n{}\n{}",
@@ -4327,6 +4346,9 @@ impl Options {
         if let Some(stacked_pane_direction) = self.stacked_pane_direction_to_kdl(add_comments) {
             nodes.push(stacked_pane_direction);
         }
+        if let Some(stacked_pane_header) = self.stacked_pane_header_to_kdl(add_comments) {
+            nodes.push(stacked_pane_header);
+        }
         if let Some(show_startup_tips) = self.show_startup_tips_to_kdl(add_comments) {
             nodes.push(show_startup_tips);
         }
@@ -4366,6 +4388,174 @@ impl Options {
         nodes
     }
 }
+
+impl StackedPaneHeaderConfig {
+    fn from_kdl_node(kdl_node: &KdlNode) -> Result<Self, ConfigError> {
+        let mut source = None;
+        let mut plugin = None;
+        let mut fallback = None;
+        let mut timeout_ms = None;
+
+        if let Some(children) = kdl_children_nodes!(kdl_node) {
+            for child in children {
+                match kdl_name!(child) {
+                    "source" => {
+                        let value = kdl_first_entry_as_string!(child).ok_or_else(|| {
+                            ConfigError::new_kdl_error(
+                                "stacked_pane_header source must have a value".into(),
+                                child.span().offset(),
+                                child.span().len(),
+                            )
+                        })?;
+                        source = Some(StackedPaneHeaderSource::from_str(value).map_err(|_| {
+                            kdl_parsing_error!(
+                                format!(
+                                    "Invalid value for stacked_pane_header source: '{}'",
+                                    value
+                                ),
+                                child
+                            )
+                        })?);
+                    },
+                    "plugin" => {
+                        let value = kdl_first_entry_as_string!(child).ok_or_else(|| {
+                            ConfigError::new_kdl_error(
+                                "stacked_pane_header plugin must have a value".into(),
+                                child.span().offset(),
+                                child.span().len(),
+                            )
+                        })?;
+                        plugin = Some(value.to_owned());
+                    },
+                    "fallback" => {
+                        let value = kdl_first_entry_as_string!(child).ok_or_else(|| {
+                            ConfigError::new_kdl_error(
+                                "stacked_pane_header fallback must have a value".into(),
+                                child.span().offset(),
+                                child.span().len(),
+                            )
+                        })?;
+                        fallback = Some(StackedPaneHeaderFallback::from_str(value).map_err(|_| {
+                            kdl_parsing_error!(
+                                format!(
+                                    "Invalid value for stacked_pane_header fallback: '{}'",
+                                    value
+                                ),
+                                child
+                            )
+                        })?);
+                    },
+                    "timeout_ms" => {
+                        let value = child
+                            .entries()
+                            .iter()
+                            .next()
+                            .and_then(|entry| entry.value().as_i64())
+                            .ok_or_else(|| {
+                                ConfigError::new_kdl_error(
+                                    "stacked_pane_header timeout_ms must be an integer".into(),
+                                    child.span().offset(),
+                                    child.span().len(),
+                                )
+                            })?;
+                        if value < 0 {
+                            return Err(ConfigError::new_kdl_error(
+                                "stacked_pane_header timeout_ms must be greater than or equal to 0"
+                                    .into(),
+                                child.span().offset(),
+                                child.span().len(),
+                            ));
+                        }
+                        timeout_ms = Some(value as u64);
+                    },
+                    other => {
+                        return Err(ConfigError::new_kdl_error(
+                            format!(
+                                "Unknown stacked_pane_header option '{}'; expected source, plugin, fallback, or timeout_ms",
+                                other
+                            ),
+                            child.span().offset(),
+                            child.span().len(),
+                        ));
+                    },
+                }
+            }
+        }
+
+        if matches!(source, Some(StackedPaneHeaderSource::Plugin)) && plugin.is_none() {
+            return Err(ConfigError::new_kdl_error(
+                "stacked_pane_header source \"plugin\" requires a plugin child".into(),
+                kdl_node.span().offset(),
+                kdl_node.span().len(),
+            ));
+        }
+        Ok(StackedPaneHeaderConfig {
+            source,
+            plugin,
+            fallback,
+            timeout_ms,
+        })
+    }
+
+    fn to_kdl_node(&self, add_comments: bool) -> KdlNode {
+        let mut node = KdlNode::new("stacked_pane_header");
+        let mut children = KdlDocument::new();
+
+        let source = self.source.or(if add_comments {
+            Some(StackedPaneHeaderSource::Builtin)
+        } else {
+            None
+        });
+        if let Some(source) = source {
+            let mut source_node = KdlNode::new("source");
+            source_node.push(match source {
+                StackedPaneHeaderSource::Builtin => "builtin",
+                StackedPaneHeaderSource::Plugin => "plugin",
+            });
+            children.nodes_mut().push(source_node);
+        }
+
+        if let Some(plugin) = &self.plugin {
+            let mut plugin_node = KdlNode::new("plugin");
+            plugin_node.push(plugin.clone());
+            children.nodes_mut().push(plugin_node);
+        }
+
+        let fallback = self.fallback.or(if add_comments {
+            Some(StackedPaneHeaderFallback::Builtin)
+        } else {
+            None
+        });
+        if let Some(fallback) = fallback {
+            let mut fallback_node = KdlNode::new("fallback");
+            fallback_node.push(match fallback {
+                StackedPaneHeaderFallback::Builtin => "builtin",
+            });
+            children.nodes_mut().push(fallback_node);
+        }
+
+        let timeout_ms = self.timeout_ms.or(if add_comments { Some(16) } else { None });
+        if let Some(timeout_ms) = timeout_ms {
+            let mut timeout_node = KdlNode::new("timeout_ms");
+            timeout_node.push(timeout_ms as i64);
+            children.nodes_mut().push(timeout_node);
+        }
+
+        if !children.nodes().is_empty() {
+            node.set_children(children);
+        }
+
+        if add_comments {
+            node.set_leading(
+                "\n// Configure a background plugin provider for stacked pane headers\n// The plugin supplies structured header items and Zellij remains the renderer\n// \n"
+                    .to_owned(),
+            );
+        }
+
+        node
+    }
+}
+
 
 impl Layout {
     pub fn from_kdl(

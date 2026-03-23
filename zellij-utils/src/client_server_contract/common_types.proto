@@ -1151,7 +1151,27 @@ message Options {
   optional bool focus_follows_mouse = 44;
   optional bool mouse_click_through = 45;
   optional StackDirection stacked_pane_direction = 46;
+  optional StackedPaneHeaderConfig stacked_pane_header = 47;
 }
+
+message StackedPaneHeaderConfig {
+  optional StackedPaneHeaderSource source = 1;
+  optional string plugin = 2;
+  optional StackedPaneHeaderFallback fallback = 3;
+  optional uint64 timeout_ms = 4;
+}
+
+enum StackedPaneHeaderSource {
+  STACKED_PANE_HEADER_SOURCE_UNSPECIFIED = 0;
+  STACKED_PANE_HEADER_SOURCE_BUILTIN = 1;
+  STACKED_PANE_HEADER_SOURCE_PLUGIN = 2;
+}
+
+enum StackedPaneHeaderFallback {
+  STACKED_PANE_HEADER_FALLBACK_UNSPECIFIED = 0;
+  STACKED_PANE_HEADER_FALLBACK_BUILTIN = 1;
+}
+
 
 enum OnForceClose {
   ON_FORCE_CLOSE_UNSPECIFIED = 0;

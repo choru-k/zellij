@@ -584,7 +584,10 @@ mod config_test {
     use super::*;
     use crate::data::{InputMode, Palette, PaletteColor, StyleDeclaration, Styling};
     use crate::input::layout::RunPlugin;
-    use crate::input::options::{Clipboard, OnForceClose, StackedPaneDirection};
+    use crate::input::options::{
+        Clipboard, OnForceClose, StackedPaneDirection, StackedPaneHeaderConfig,
+        StackedPaneHeaderFallback, StackedPaneHeaderSource,
+    };
     use crate::input::theme::{FrameConfig, Theme, Themes, UiConfig};
     use std::collections::{BTreeMap, HashMap};
     use std::io::Write;
@@ -670,6 +673,12 @@ mod config_test {
             session_name "my awesome session"
             attach_to_session true
             stacked_pane_direction "horizontal"
+            stacked_pane_header {
+                source "plugin"
+                plugin "file:/path/to/stacked-pane-header.wasm"
+                fallback "builtin"
+                timeout_ms 24
+            }
         "#;
         let config = Config::from_kdl(config_contents, None).unwrap();
         assert_eq!(
@@ -771,6 +780,16 @@ mod config_test {
             config.options.stacked_pane_direction,
             Some(StackedPaneDirection::Horizontal),
             "Option set in config"
+        );
+        assert_eq!(
+            config.options.stacked_pane_header,
+            Some(StackedPaneHeaderConfig {
+                source: Some(StackedPaneHeaderSource::Plugin),
+                plugin: Some("file:/path/to/stacked-pane-header.wasm".to_owned()),
+                fallback: Some(StackedPaneHeaderFallback::Builtin),
+                timeout_ms: Some(24),
+            }),
+            "Stacked pane header config set in config"
         );
     }
 

@@ -3,7 +3,7 @@
 pub struct PluginCommand {
     #[prost(enumeration="CommandName", tag="1")]
     pub name: i32,
-    #[prost(oneof="plugin_command::Payload", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160")]
+    #[prost(oneof="plugin_command::Payload", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161")]
     pub payload: ::core::option::Option<plugin_command::Payload>,
 }
 /// Nested message and enum types in `PluginCommand`.
@@ -303,6 +303,8 @@ pub mod plugin_command {
         ClearPaneHighlightsPayload(super::ClearPaneHighlightsPayload),
         #[prost(message, tag="160")]
         OpenPluginPaneFloatingPayload(super::OpenPluginPaneFloatingPayload),
+        #[prost(message, tag="161")]
+        SetStackedPaneHeaderPayload(super::StackedPaneHeaderUpdatePayload),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1899,6 +1901,65 @@ pub struct OpenPluginPaneFloatingResponse {
     #[prost(message, optional, tag="1")]
     pub pane_id: ::core::option::Option<PaneId>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StackedPaneHeaderKey {
+    #[prost(uint32, tag="1")]
+    pub client_id: u32,
+    #[prost(uint32, tag="2")]
+    pub tab_id: u32,
+    #[prost(uint32, tag="3")]
+    pub stack_id: u32,
+    #[prost(uint64, tag="4")]
+    pub revision: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StackedPaneHeaderAction {
+    #[prost(oneof="stacked_pane_header_action::Action", tags="1, 2, 3")]
+    pub action: ::core::option::Option<stacked_pane_header_action::Action>,
+}
+/// Nested message and enum types in `StackedPaneHeaderAction`.
+pub mod stacked_pane_header_action {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Action {
+        #[prost(message, tag="1")]
+        FocusPane(super::PaneId),
+        #[prost(message, tag="2")]
+        ClosePane(super::PaneId),
+        #[prost(message, tag="3")]
+        ExpandPane(super::PaneId),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StackedPaneHeaderItem {
+    #[prost(message, optional, tag="1")]
+    pub pane_id: ::core::option::Option<PaneId>,
+    #[prost(string, tag="2")]
+    pub text: ::prost::alloc::string::String,
+    #[prost(enumeration="HeaderItemStyle", tag="3")]
+    pub style: i32,
+    #[prost(message, optional, tag="4")]
+    pub action: ::core::option::Option<StackedPaneHeaderAction>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StackedPaneHeaderSpec {
+    #[prost(enumeration="HeaderAlignment", tag="1")]
+    pub alignment: i32,
+    #[prost(message, repeated, tag="2")]
+    pub items: ::prost::alloc::vec::Vec<StackedPaneHeaderItem>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StackedPaneHeaderUpdatePayload {
+    #[prost(message, optional, tag="1")]
+    pub key: ::core::option::Option<StackedPaneHeaderKey>,
+    #[prost(message, optional, tag="2")]
+    pub spec: ::core::option::Option<StackedPaneHeaderSpec>,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum CommandName {
@@ -2092,6 +2153,7 @@ pub enum CommandName {
     ClearPaneHighlights = 208,
     OpenPluginPaneFloating = 209,
     ListWindowsVolumes = 210,
+    SetStackedPaneHeader = 211,
 }
 impl CommandName {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -2290,6 +2352,7 @@ impl CommandName {
             CommandName::ClearPaneHighlights => "ClearPaneHighlights",
             CommandName::OpenPluginPaneFloating => "OpenPluginPaneFloating",
             CommandName::ListWindowsVolumes => "ListWindowsVolumes",
+            CommandName::SetStackedPaneHeader => "SetStackedPaneHeader",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2485,6 +2548,7 @@ impl CommandName {
             "ClearPaneHighlights" => Some(Self::ClearPaneHighlights),
             "OpenPluginPaneFloating" => Some(Self::OpenPluginPaneFloating),
             "ListWindowsVolumes" => Some(Self::ListWindowsVolumes),
+            "SetStackedPaneHeader" => Some(Self::SetStackedPaneHeader),
             _ => None,
         }
     }
@@ -2598,6 +2662,70 @@ impl HighlightLayer {
             "Hint" => Some(Self::Hint),
             "Tool" => Some(Self::Tool),
             "ActionFeedback" => Some(Self::ActionFeedback),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum HeaderAlignment {
+    Left = 0,
+    Center = 1,
+    Right = 2,
+}
+impl HeaderAlignment {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            HeaderAlignment::Left => "Left",
+            HeaderAlignment::Center => "Center",
+            HeaderAlignment::Right => "Right",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "Left" => Some(Self::Left),
+            "Center" => Some(Self::Center),
+            "Right" => Some(Self::Right),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum HeaderItemStyle {
+    Default = 0,
+    Selected = 1,
+    Warning = 2,
+    Success = 3,
+    Muted = 4,
+}
+impl HeaderItemStyle {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            HeaderItemStyle::Default => "Default",
+            HeaderItemStyle::Selected => "Selected",
+            HeaderItemStyle::Warning => "Warning",
+            HeaderItemStyle::Success => "Success",
+            HeaderItemStyle::Muted => "Muted",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "Default" => Some(Self::Default),
+            "Selected" => Some(Self::Selected),
+            "Warning" => Some(Self::Warning),
+            "Success" => Some(Self::Success),
+            "Muted" => Some(Self::Muted),
             _ => None,
         }
     }

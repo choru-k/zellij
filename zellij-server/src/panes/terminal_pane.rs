@@ -91,6 +91,7 @@ pub enum PaneId {
     Plugin(u32), // FIXME: Drop the trait object, make this a wrapper for the struct?
 }
 
+
 // because crate architecture and reasons...
 impl From<ZellijUtilsPaneId> for PaneId {
     fn from(zellij_utils_pane_id: ZellijUtilsPaneId) -> Self {

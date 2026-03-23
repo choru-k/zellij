@@ -2808,7 +2808,7 @@ impl Tab {
         }
 
         let pane_id = self
-            .get_pane_id_at(position, false)
+            .get_pane_id_at(position, false, Some(client_id))
             .with_context(err_context)?;
         if let Some(pane_id) = pane_id {
             self.write_to_pane_id(&None, input_bytes, false, pane_id, Some(client_id), None)
@@ -3168,6 +3168,7 @@ impl Tab {
         self.tiled_panes
             .render(
                 output,
+                self.id,
                 self.floating_panes.panes_are_visible(),
                 &self.mouse_hover_pane_id,
                 current_pane_group.clone(),
@@ -4468,6 +4469,7 @@ impl Tab {
         &mut self,
         point: &Position,
         search_selectable: bool,
+        client_id: Option<ClientId>,
     ) -> Result<Option<PaneId>> {
         let err_context = || format!("failed to get id of pane at position {point:?}");
 
@@ -4487,9 +4489,13 @@ impl Tab {
             return Ok(self.tiled_panes.get_active_pane_id(first_client_id));
         }
 
-        if let Some(stacked_pane_id) = self.tiled_panes.stacked_pane_id_at_position(point) {
+        if let Some(stacked_pane_id) =
+            self.tiled_panes
+                .stacked_pane_id_at_position(self.id, client_id, point)
+        {
             return Ok(Some(stacked_pane_id));
         }
+
 
         let (stacked_pane_ids_under_flexible_pane, _stacked_pane_ids_over_flexible_pane) = {
             self.tiled_panes
@@ -4536,6 +4542,15 @@ impl Tab {
                 .find(|(_, p)| pane_contains_point(p, point, &stacked_pane_ids_under_flexible_pane))
                 .map(|(&id, _)| id))
         }
+    }
+
+    fn stacked_pane_header_action_at_position(
+        &mut self,
+        point: &Position,
+        client_id: ClientId,
+    ) -> Option<zellij_utils::data::StackedPaneHeaderAction> {
+        self.tiled_panes
+            .stacked_pane_header_action_at_position(self.id, client_id, point)
     }
 
     pub fn handle_mouse_event(
@@ -4731,6 +4746,26 @@ impl Tab {
         self.set_should_clear_display_before_rendering();
         self.set_force_render();
     }
+    pub fn update_stacked_pane_header_provider(
+        &mut self,
+        stacked_pane_header_provider: Option<crate::panes::StackedPaneHeaderProvider>,
+    ) {
+        self.tiled_panes
+            .update_stacked_pane_header_provider(stacked_pane_header_provider);
+        self.set_should_clear_display_before_rendering();
+        self.set_force_render();
+    }
+
+    pub fn update_stacked_pane_header(
+        &mut self,
+        stacked_pane_header: zellij_utils::data::StackedPaneHeaderUpdate,
+    ) {
+        self.tiled_panes
+            .update_stacked_pane_header(stacked_pane_header);
+        self.set_should_clear_display_before_rendering();
+        self.set_force_render();
+    }
+
 
     pub fn panes_to_hide_count(&self) -> usize {
         self.tiled_panes.panes_to_hide_count()

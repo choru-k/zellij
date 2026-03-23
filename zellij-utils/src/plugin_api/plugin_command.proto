@@ -203,6 +203,7 @@ enum CommandName {
   ClearPaneHighlights = 208;
   OpenPluginPaneFloating = 209;
   ListWindowsVolumes = 210;
+  SetStackedPaneHeader = 211;
 }
 
 message PluginCommand {
@@ -354,6 +355,7 @@ message PluginCommand {
     SetPaneRegexHighlightsPayload set_pane_regex_highlights_payload = 158;
     ClearPaneHighlightsPayload clear_pane_highlights_payload = 159;
     OpenPluginPaneFloatingPayload open_plugin_pane_floating_payload = 160;
+    StackedPaneHeaderUpdatePayload set_stacked_pane_header_payload = 161;
   }
 }
 
@@ -1294,4 +1296,50 @@ message OpenPluginPaneFloatingPayload {
 
 message OpenPluginPaneFloatingResponse {
   optional PaneId pane_id = 1;
+}
+
+message StackedPaneHeaderKey {
+  uint32 client_id = 1;
+  uint32 tab_id = 2;
+  uint32 stack_id = 3;
+  uint64 revision = 4;
+}
+
+enum HeaderAlignment {
+  Left = 0;
+  Center = 1;
+  Right = 2;
+}
+
+enum HeaderItemStyle {
+  Default = 0;
+  Selected = 1;
+  Warning = 2;
+  Success = 3;
+  Muted = 4;
+}
+
+message StackedPaneHeaderAction {
+  oneof action {
+    PaneId focus_pane = 1;
+    PaneId close_pane = 2;
+    PaneId expand_pane = 3;
+  }
+}
+
+message StackedPaneHeaderItem {
+  optional PaneId pane_id = 1;
+  string text = 2;
+  HeaderItemStyle style = 3;
+  optional StackedPaneHeaderAction action = 4;
+}
+
+message StackedPaneHeaderSpec {
+  HeaderAlignment alignment = 1;
+  repeated StackedPaneHeaderItem items = 2;
+}
+
+message StackedPaneHeaderUpdatePayload {
+  StackedPaneHeaderKey key = 1;
+  StackedPaneHeaderSpec spec = 2;
 }

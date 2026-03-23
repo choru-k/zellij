@@ -112,10 +112,15 @@ pub use super::generated_api::api::{
         SetPaneRegexHighlightsPayload, SetSelfMouseSelectionSupportPayload, SetTimeoutPayload,
         ShowCursorPayload, ShowFloatingPanesPayload as ProtobufShowFloatingPanesPayload,
         ShowFloatingPanesResponse as ProtobufShowFloatingPanesResponse, ShowPaneWithIdPayload,
-        StackPanesPayload, SubscribePayload, SwitchSessionPayload, SwitchTabToIdPayload,
-        SwitchTabToPayload, TogglePaneBorderlessPayload, TogglePaneEmbedOrEjectForPaneIdPayload,
-        TogglePaneIdFullscreenPayload, UnsubscribePayload, WebRequestPayload,
-        WriteCharsToPaneIdPayload, WriteToPaneIdPayload,
+        StackPanesPayload, StackedPaneHeaderAction as ProtobufStackedPaneHeaderAction,
+        StackedPaneHeaderItem as ProtobufStackedPaneHeaderItem,
+        StackedPaneHeaderKey as ProtobufStackedPaneHeaderKey,
+        StackedPaneHeaderSpec as ProtobufStackedPaneHeaderSpec,
+        StackedPaneHeaderUpdatePayload, SubscribePayload, SwitchSessionPayload,
+        SwitchTabToIdPayload, SwitchTabToPayload, TogglePaneBorderlessPayload,
+        TogglePaneEmbedOrEjectForPaneIdPayload, TogglePaneIdFullscreenPayload,
+        UnsubscribePayload, WebRequestPayload, WriteCharsToPaneIdPayload, WriteToPaneIdPayload,
+        HeaderAlignment as ProtobufHeaderAlignment, HeaderItemStyle as ProtobufHeaderItemStyle,
     },
     plugin_permission::PermissionType as ProtobufPermissionType,
     resize::ResizeAction as ProtobufResizeAction,
@@ -124,9 +129,11 @@ pub use super::generated_api::api::{
 use crate::data::{
     ConnectToSession, DeleteLayoutResponse, EditLayoutResponse, FloatingPaneCoordinates,
     GetFocusedPaneInfoResponse, GetPaneCwdResponse, GetPanePidResponse,
-    GetPaneRunningCommandResponse, HighlightLayer, HighlightStyle, HttpVerb, InputMode,
-    KeyWithModifier, MessageToPlugin, NewPluginArgs, PaneId, PermissionType, PluginCommand,
-    RegexHighlight, RenameLayoutResponse, SaveLayoutResponse,
+    GetPaneRunningCommandResponse, HeaderAlignment, HighlightLayer, HighlightStyle, HttpVerb,
+    InputMode, KeyWithModifier, MessageToPlugin, NewPluginArgs, PaneId, PermissionType,
+    PluginCommand, RegexHighlight, RenameLayoutResponse, SaveLayoutResponse,
+    StackedPaneHeaderAction, StackedPaneHeaderItem, StackedPaneHeaderItemStyle,
+    StackedPaneHeaderKey, StackedPaneHeaderSpec, StackedPaneHeaderUpdate,
 };
 use crate::input::actions::Action;
 use crate::input::layout::PercentOrFixed;
@@ -289,6 +296,209 @@ impl TryFrom<PaneId> for ProtobufPaneId {
         }
     }
 }
+
+impl TryFrom<ProtobufStackedPaneHeaderKey> for StackedPaneHeaderKey {
+    type Error = &'static str;
+
+    fn try_from(key: ProtobufStackedPaneHeaderKey) -> Result<Self, Self::Error> {
+        Ok(StackedPaneHeaderKey {
+            client_id: key.client_id as u16,
+            tab_id: key.tab_id as usize,
+            stack_id: key.stack_id as usize,
+            revision: key.revision,
+        })
+    }
+}
+
+impl TryFrom<StackedPaneHeaderKey> for ProtobufStackedPaneHeaderKey {
+    type Error = &'static str;
+
+    fn try_from(key: StackedPaneHeaderKey) -> Result<Self, Self::Error> {
+        Ok(ProtobufStackedPaneHeaderKey {
+            client_id: key.client_id as u32,
+            tab_id: key.tab_id as u32,
+            stack_id: key.stack_id as u32,
+            revision: key.revision,
+        })
+    }
+}
+
+impl TryFrom<ProtobufHeaderAlignment> for HeaderAlignment {
+    type Error = &'static str;
+
+    fn try_from(alignment: ProtobufHeaderAlignment) -> Result<Self, Self::Error> {
+        Ok(match alignment {
+            ProtobufHeaderAlignment::Left => HeaderAlignment::Left,
+            ProtobufHeaderAlignment::Center => HeaderAlignment::Center,
+            ProtobufHeaderAlignment::Right => HeaderAlignment::Right,
+        })
+    }
+}
+
+impl From<HeaderAlignment> for ProtobufHeaderAlignment {
+    fn from(alignment: HeaderAlignment) -> Self {
+        match alignment {
+            HeaderAlignment::Left => ProtobufHeaderAlignment::Left,
+            HeaderAlignment::Center => ProtobufHeaderAlignment::Center,
+            HeaderAlignment::Right => ProtobufHeaderAlignment::Right,
+        }
+    }
+}
+
+impl TryFrom<ProtobufHeaderItemStyle> for StackedPaneHeaderItemStyle {
+    type Error = &'static str;
+
+    fn try_from(style: ProtobufHeaderItemStyle) -> Result<Self, Self::Error> {
+        Ok(match style {
+            ProtobufHeaderItemStyle::Default => StackedPaneHeaderItemStyle::Default,
+            ProtobufHeaderItemStyle::Selected => StackedPaneHeaderItemStyle::Selected,
+            ProtobufHeaderItemStyle::Warning => StackedPaneHeaderItemStyle::Warning,
+            ProtobufHeaderItemStyle::Success => StackedPaneHeaderItemStyle::Success,
+            ProtobufHeaderItemStyle::Muted => StackedPaneHeaderItemStyle::Muted,
+        })
+    }
+}
+
+impl From<StackedPaneHeaderItemStyle> for ProtobufHeaderItemStyle {
+    fn from(style: StackedPaneHeaderItemStyle) -> Self {
+        match style {
+            StackedPaneHeaderItemStyle::Default => ProtobufHeaderItemStyle::Default,
+            StackedPaneHeaderItemStyle::Selected => ProtobufHeaderItemStyle::Selected,
+            StackedPaneHeaderItemStyle::Warning => ProtobufHeaderItemStyle::Warning,
+            StackedPaneHeaderItemStyle::Success => ProtobufHeaderItemStyle::Success,
+            StackedPaneHeaderItemStyle::Muted => ProtobufHeaderItemStyle::Muted,
+        }
+    }
+}
+
+impl TryFrom<ProtobufStackedPaneHeaderAction> for StackedPaneHeaderAction {
+    type Error = &'static str;
+
+    fn try_from(action: ProtobufStackedPaneHeaderAction) -> Result<Self, Self::Error> {
+        match action.action {
+            Some(
+                super::generated_api::api::plugin_command::stacked_pane_header_action::Action::FocusPane(
+                    pane_id,
+                ),
+            ) => Ok(StackedPaneHeaderAction::FocusPane(pane_id.try_into()?)),
+            Some(
+                super::generated_api::api::plugin_command::stacked_pane_header_action::Action::ClosePane(
+                    pane_id,
+                ),
+            ) => Ok(StackedPaneHeaderAction::ClosePane(pane_id.try_into()?)),
+            Some(
+                super::generated_api::api::plugin_command::stacked_pane_header_action::Action::ExpandPane(
+                    pane_id,
+                ),
+            ) => Ok(StackedPaneHeaderAction::ExpandPane(pane_id.try_into()?)),
+            None => Err("Missing action in StackedPaneHeaderAction"),
+        }
+    }
+}
+
+impl TryFrom<StackedPaneHeaderAction> for ProtobufStackedPaneHeaderAction {
+    type Error = &'static str;
+
+    fn try_from(action: StackedPaneHeaderAction) -> Result<Self, Self::Error> {
+        Ok(ProtobufStackedPaneHeaderAction {
+            action: Some(match action {
+                StackedPaneHeaderAction::FocusPane(pane_id) => super::generated_api::api::plugin_command::stacked_pane_header_action::Action::FocusPane(pane_id.try_into()?),
+                StackedPaneHeaderAction::ClosePane(pane_id) => super::generated_api::api::plugin_command::stacked_pane_header_action::Action::ClosePane(pane_id.try_into()?),
+                StackedPaneHeaderAction::ExpandPane(pane_id) => super::generated_api::api::plugin_command::stacked_pane_header_action::Action::ExpandPane(pane_id.try_into()?),
+            }),
+        })
+    }
+}
+
+impl TryFrom<ProtobufStackedPaneHeaderItem> for StackedPaneHeaderItem {
+    type Error = &'static str;
+
+    fn try_from(item: ProtobufStackedPaneHeaderItem) -> Result<Self, Self::Error> {
+        let style = ProtobufHeaderItemStyle::from_i32(item.style)
+            .ok_or("Invalid HeaderItemStyle value")?
+            .try_into()?;
+        Ok(StackedPaneHeaderItem {
+            pane_id: item.pane_id.map(TryInto::try_into).transpose()?,
+            text: item.text,
+            style,
+            action: item.action.map(TryInto::try_into).transpose()?,
+        })
+    }
+}
+
+impl TryFrom<StackedPaneHeaderItem> for ProtobufStackedPaneHeaderItem {
+    type Error = &'static str;
+
+    fn try_from(item: StackedPaneHeaderItem) -> Result<Self, Self::Error> {
+        Ok(ProtobufStackedPaneHeaderItem {
+            pane_id: item.pane_id.map(TryInto::try_into).transpose()?,
+            text: item.text,
+            style: ProtobufHeaderItemStyle::from(item.style) as i32,
+            action: item.action.map(TryInto::try_into).transpose()?,
+        })
+    }
+}
+
+impl TryFrom<ProtobufStackedPaneHeaderSpec> for StackedPaneHeaderSpec {
+    type Error = &'static str;
+
+    fn try_from(spec: ProtobufStackedPaneHeaderSpec) -> Result<Self, Self::Error> {
+        let alignment = ProtobufHeaderAlignment::from_i32(spec.alignment)
+            .ok_or("Invalid HeaderAlignment value")?
+            .try_into()?;
+        let items = spec
+            .items
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(StackedPaneHeaderSpec { alignment, items })
+    }
+}
+
+impl TryFrom<StackedPaneHeaderSpec> for ProtobufStackedPaneHeaderSpec {
+    type Error = &'static str;
+
+    fn try_from(spec: StackedPaneHeaderSpec) -> Result<Self, Self::Error> {
+        let items = spec
+            .items
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ProtobufStackedPaneHeaderSpec {
+            alignment: ProtobufHeaderAlignment::from(spec.alignment) as i32,
+            items,
+        })
+    }
+}
+
+impl TryFrom<StackedPaneHeaderUpdatePayload> for StackedPaneHeaderUpdate {
+    type Error = &'static str;
+
+    fn try_from(payload: StackedPaneHeaderUpdatePayload) -> Result<Self, Self::Error> {
+        Ok(StackedPaneHeaderUpdate {
+            key: payload
+                .key
+                .ok_or("Missing key in StackedPaneHeaderUpdatePayload")?
+                .try_into()?,
+            spec: payload
+                .spec
+                .ok_or("Missing spec in StackedPaneHeaderUpdatePayload")?
+                .try_into()?,
+        })
+    }
+}
+
+impl TryFrom<StackedPaneHeaderUpdate> for StackedPaneHeaderUpdatePayload {
+    type Error = &'static str;
+
+    fn try_from(update: StackedPaneHeaderUpdate) -> Result<Self, Self::Error> {
+        Ok(StackedPaneHeaderUpdatePayload {
+            key: Some(update.key.try_into()?),
+            spec: Some(update.spec.try_into()?),
+        })
+    }
+}
+
 
 impl TryFrom<ProtobufGetPanePidResponse> for GetPanePidResponse {
     type Error = &'static str;
@@ -572,6 +782,12 @@ impl TryFrom<ProtobufPluginCommand> for PluginCommand {
                     Ok(PluginCommand::ShowCursor(cursor_position))
                 },
                 _ => Err("Mismatched payload for ShowCursor"),
+            },
+            Some(CommandName::SetStackedPaneHeader) => match protobuf_plugin_command.payload {
+                Some(Payload::SetStackedPaneHeaderPayload(payload)) => {
+                    Ok(PluginCommand::SetStackedPaneHeader(payload.try_into()?))
+                },
+                _ => Err("Mismatched payload for SetStackedPaneHeader"),
             },
             Some(CommandName::GetPluginIds) => {
                 if protobuf_plugin_command.payload.is_some() {
@@ -2610,6 +2826,10 @@ impl TryFrom<PluginCommand> for ProtobufPluginCommand {
                     payload: Some(Payload::ShowCursorPayload(ShowCursorPayload { position })),
                 })
             },
+            PluginCommand::SetStackedPaneHeader(update) => Ok(ProtobufPluginCommand {
+                name: CommandName::SetStackedPaneHeader as i32,
+                payload: Some(Payload::SetStackedPaneHeaderPayload(update.try_into()?)),
+            }),
             PluginCommand::GetPluginIds => Ok(ProtobufPluginCommand {
                 name: CommandName::GetPluginIds as i32,
                 payload: None,

@@ -318,6 +318,7 @@ fn create_new_screen(
         stacked_resize,
         StackedPaneDirection::Vertical,
         None,
+        None,
         false,
         web_sharing,
         advanced_mouse_actions,
@@ -603,6 +604,7 @@ impl MockScreen {
             current_input_modes: self.session_metadata.current_input_modes.clone(),
             web_sharing: WebSharing::Off,
             config_file_path: self.session_metadata.config_file_path.clone(),
+            stacked_pane_header_provider: None,
         }
     }
 }
@@ -663,6 +665,7 @@ impl MockScreen {
             current_input_modes: HashMap::new(),
             web_sharing: WebSharing::Off,
             config_file_path: None,
+            stacked_pane_header_provider: None,
         };
 
         let os_input = FakeInputOutput::default();
@@ -5223,6 +5226,7 @@ fn create_new_screen_with_message_capture(
         explicitly_disable_kitty_keyboard_protocol,
         stacked_resize,
         StackedPaneDirection::Vertical,
+        None,
         None,
         false,
         web_sharing,

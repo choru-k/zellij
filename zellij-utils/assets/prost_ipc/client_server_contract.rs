@@ -1897,6 +1897,20 @@ pub struct Options {
     pub mouse_click_through: ::core::option::Option<bool>,
     #[prost(enumeration="StackDirection", optional, tag="46")]
     pub stacked_pane_direction: ::core::option::Option<i32>,
+    #[prost(message, optional, tag="47")]
+    pub stacked_pane_header: ::core::option::Option<StackedPaneHeaderConfig>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StackedPaneHeaderConfig {
+    #[prost(enumeration="StackedPaneHeaderSource", optional, tag="1")]
+    pub source: ::core::option::Option<i32>,
+    #[prost(string, optional, tag="2")]
+    pub plugin: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(enumeration="StackedPaneHeaderFallback", optional, tag="3")]
+    pub fallback: ::core::option::Option<i32>,
+    #[prost(uint64, optional, tag="4")]
+    pub timeout_ms: ::core::option::Option<u64>,
 }
 /// Pane-targeting action messages
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2695,6 +2709,61 @@ impl RunPluginLocation {
             "RUN_PLUGIN_LOCATION_FILE" => Some(Self::File),
             "RUN_PLUGIN_LOCATION_ZELLIJ" => Some(Self::Zellij),
             "RUN_PLUGIN_LOCATION_REMOTE" => Some(Self::Remote),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum StackedPaneHeaderSource {
+    Unspecified = 0,
+    Builtin = 1,
+    Plugin = 2,
+}
+impl StackedPaneHeaderSource {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            StackedPaneHeaderSource::Unspecified => "STACKED_PANE_HEADER_SOURCE_UNSPECIFIED",
+            StackedPaneHeaderSource::Builtin => "STACKED_PANE_HEADER_SOURCE_BUILTIN",
+            StackedPaneHeaderSource::Plugin => "STACKED_PANE_HEADER_SOURCE_PLUGIN",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "STACKED_PANE_HEADER_SOURCE_UNSPECIFIED" => Some(Self::Unspecified),
+            "STACKED_PANE_HEADER_SOURCE_BUILTIN" => Some(Self::Builtin),
+            "STACKED_PANE_HEADER_SOURCE_PLUGIN" => Some(Self::Plugin),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum StackedPaneHeaderFallback {
+    Unspecified = 0,
+    Builtin = 1,
+}
+impl StackedPaneHeaderFallback {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            StackedPaneHeaderFallback::Unspecified => "STACKED_PANE_HEADER_FALLBACK_UNSPECIFIED",
+            StackedPaneHeaderFallback::Builtin => "STACKED_PANE_HEADER_FALLBACK_BUILTIN",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "STACKED_PANE_HEADER_FALLBACK_UNSPECIFIED" => Some(Self::Unspecified),
+            "STACKED_PANE_HEADER_FALLBACK_BUILTIN" => Some(Self::Builtin),
             _ => None,
         }
     }

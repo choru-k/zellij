@@ -13,7 +13,10 @@ use crate::input::layout::{
     TiledPaneLayout,
 };
 use crate::input::mouse::{MouseEvent, MouseEventType};
-use crate::input::options::{Clipboard, OnForceClose, Options, StackedPaneDirection};
+use crate::input::options::{
+    Clipboard, OnForceClose, Options, StackedPaneDirection, StackedPaneHeaderConfig,
+    StackedPaneHeaderFallback, StackedPaneHeaderSource,
+};
 use crate::ipc::{
     ClientToServerMsg, ColorRegister, ExitReason, PaneReference, PixelDimensions, ServerToClientMsg,
 };
@@ -463,6 +466,12 @@ fn test_client_messages() {
                 web_sharing: Some(WebSharing::On),
                 stacked_resize: Some(true),
                 stacked_pane_direction: Some(StackedPaneDirection::Horizontal),
+                stacked_pane_header: Some(StackedPaneHeaderConfig {
+                    source: Some(StackedPaneHeaderSource::Plugin),
+                    plugin: Some("file:/path/to/stacked-pane-header.wasm".to_owned()),
+                    fallback: Some(StackedPaneHeaderFallback::Builtin),
+                    timeout_ms: Some(16),
+                }),
                 show_startup_tips: Some(true),
                 show_release_notes: Some(true),
                 advanced_mouse_actions: Some(true),

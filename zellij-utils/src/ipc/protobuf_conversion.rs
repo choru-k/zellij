@@ -609,7 +609,9 @@ impl From<crate::input::options::Options>
     fn from(options: crate::input::options::Options) -> Self {
         use crate::client_server_contract::client_server_contract::{
             Clipboard as ProtoClipboard, OnForceClose as ProtoOnForceClose,
-            StackDirection as ProtoStackDirection, WebSharing as ProtoWebSharing,
+            StackDirection as ProtoStackDirection,
+            StackedPaneHeaderFallback as ProtoStackedPaneHeaderFallback,
+            StackedPaneHeaderSource as ProtoStackedPaneHeaderSource, WebSharing as ProtoWebSharing,
         };
 
         Self {
@@ -670,6 +672,25 @@ impl From<crate::input::options::Options>
                     },
                 },
             ),
+            stacked_pane_header: options.stacked_pane_header.map(|stacked_pane_header| {
+                crate::client_server_contract::client_server_contract::StackedPaneHeaderConfig {
+                    source: stacked_pane_header.source.map(|source| match source {
+                        crate::input::options::StackedPaneHeaderSource::Builtin => {
+                            ProtoStackedPaneHeaderSource::Builtin as i32
+                        },
+                        crate::input::options::StackedPaneHeaderSource::Plugin => {
+                            ProtoStackedPaneHeaderSource::Plugin as i32
+                        },
+                    }),
+                    plugin: stacked_pane_header.plugin,
+                    fallback: stacked_pane_header.fallback.map(|fallback| match fallback {
+                        crate::input::options::StackedPaneHeaderFallback::Builtin => {
+                            ProtoStackedPaneHeaderFallback::Builtin as i32
+                        },
+                    }),
+                    timeout_ms: stacked_pane_header.timeout_ms,
+                }
+            }),
             show_startup_tips: options.show_startup_tips,
             show_release_notes: options.show_release_notes,
             advanced_mouse_actions: options.advanced_mouse_actions,
@@ -701,7 +722,9 @@ impl TryFrom<crate::client_server_contract::client_server_contract::Options>
     ) -> Result<Self> {
         use crate::client_server_contract::client_server_contract::{
             Clipboard as ProtoClipboard, OnForceClose as ProtoOnForceClose,
-            StackDirection as ProtoStackDirection, WebSharing as ProtoWebSharing,
+            StackDirection as ProtoStackDirection,
+            StackedPaneHeaderFallback as ProtoStackedPaneHeaderFallback,
+            StackedPaneHeaderSource as ProtoStackedPaneHeaderSource, WebSharing as ProtoWebSharing,
         };
 
         Ok(Self {
@@ -777,6 +800,39 @@ impl TryFrom<crate::client_server_contract::client_server_contract::Options>
                     _ => Err(anyhow!("Invalid StackDirection value: {}", direction)),
                 })
                 .transpose()?,
+            stacked_pane_header: match options.stacked_pane_header {
+                Some(stacked_pane_header) => Some(crate::input::options::StackedPaneHeaderConfig {
+                    source: stacked_pane_header
+                        .source
+                        .map(|source| match ProtoStackedPaneHeaderSource::from_i32(source) {
+                            Some(ProtoStackedPaneHeaderSource::Builtin) => {
+                                Ok(crate::input::options::StackedPaneHeaderSource::Builtin)
+                            },
+                            Some(ProtoStackedPaneHeaderSource::Plugin) => {
+                                Ok(crate::input::options::StackedPaneHeaderSource::Plugin)
+                            },
+                            _ => Err(anyhow!("Invalid StackedPaneHeaderSource value: {}", source)),
+                        })
+                        .transpose()?,
+                    plugin: stacked_pane_header.plugin,
+                    fallback: stacked_pane_header
+                        .fallback
+                        .map(
+                            |fallback| match ProtoStackedPaneHeaderFallback::from_i32(fallback) {
+                                Some(ProtoStackedPaneHeaderFallback::Builtin) => {
+                                    Ok(crate::input::options::StackedPaneHeaderFallback::Builtin)
+                                },
+                                _ => Err(anyhow!(
+                                    "Invalid StackedPaneHeaderFallback value: {}",
+                                    fallback
+                                )),
+                            },
+                        )
+                        .transpose()?,
+                    timeout_ms: stacked_pane_header.timeout_ms,
+                }),
+                None => None,
+            },
             show_startup_tips: options.show_startup_tips,
             show_release_notes: options.show_release_notes,
             advanced_mouse_actions: options.advanced_mouse_actions,

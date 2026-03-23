@@ -9,7 +9,7 @@ pub struct EventNameList {
 pub struct Event {
     #[prost(enumeration="EventType", tag="1")]
     pub name: i32,
-    #[prost(oneof="event::Payload", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37")]
+    #[prost(oneof="event::Payload", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38")]
     pub payload: ::core::option::Option<event::Payload>,
 }
 /// Nested message and enum types in `Event`.
@@ -89,6 +89,8 @@ pub mod event {
         HighlightClickedPayload(super::HighlightClickedPayload),
         #[prost(message, tag="37")]
         PaneRenderReportWithAnsiPayload(super::PaneRenderReportPayload),
+        #[prost(message, tag="38")]
+        StackedPaneHeaderContextPayload(super::StackedPaneHeaderContextPayload),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -179,6 +181,52 @@ pub struct PaneId {
     pub pane_type: i32,
     #[prost(uint32, tag="2")]
     pub id: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StackedPaneHeaderKey {
+    #[prost(uint32, tag="1")]
+    pub client_id: u32,
+    #[prost(uint32, tag="2")]
+    pub tab_id: u32,
+    #[prost(uint32, tag="3")]
+    pub stack_id: u32,
+    #[prost(uint64, tag="4")]
+    pub revision: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StackedPaneTabContextPayload {
+    #[prost(message, optional, tag="1")]
+    pub pane_id: ::core::option::Option<PaneId>,
+    #[prost(string, tag="2")]
+    pub title: ::prost::alloc::string::String,
+    #[prost(bool, tag="3")]
+    pub is_focused: bool,
+    #[prost(bool, tag="4")]
+    pub is_expanded: bool,
+    #[prost(bool, tag="5")]
+    pub is_plugin: bool,
+    #[prost(int32, optional, tag="6")]
+    pub exit_status: ::core::option::Option<i32>,
+    #[prost(bool, tag="7")]
+    pub has_bell: bool,
+    #[prost(uint32, tag="8")]
+    pub index: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StackedPaneHeaderContextPayload {
+    #[prost(message, optional, tag="1")]
+    pub key: ::core::option::Option<StackedPaneHeaderKey>,
+    #[prost(enumeration="StackedPaneHeaderDirection", tag="2")]
+    pub direction: i32,
+    #[prost(uint32, tag="3")]
+    pub available_width: u32,
+    #[prost(bool, tag="4")]
+    pub pane_frames_enabled: bool,
+    #[prost(message, repeated, tag="5")]
+    pub panes: ::prost::alloc::vec::Vec<StackedPaneTabContextPayload>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -806,6 +854,7 @@ pub enum EventType {
     PluginConfigurationChanged = 41,
     HighlightClicked = 42,
     PaneRenderReportWithAnsi = 43,
+    StackedPaneHeaderContext = 44,
 }
 impl EventType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -857,6 +906,7 @@ impl EventType {
             EventType::PluginConfigurationChanged => "PluginConfigurationChanged",
             EventType::HighlightClicked => "HighlightClicked",
             EventType::PaneRenderReportWithAnsi => "PaneRenderReportWithAnsi",
+            EventType::StackedPaneHeaderContext => "StackedPaneHeaderContext",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -905,6 +955,7 @@ impl EventType {
             "PluginConfigurationChanged" => Some(Self::PluginConfigurationChanged),
             "HighlightClicked" => Some(Self::HighlightClicked),
             "PaneRenderReportWithAnsi" => Some(Self::PaneRenderReportWithAnsi),
+            "StackedPaneHeaderContext" => Some(Self::StackedPaneHeaderContext),
             _ => None,
         }
     }
@@ -961,6 +1012,32 @@ impl PaneType {
         match value {
             "Terminal" => Some(Self::Terminal),
             "Plugin" => Some(Self::Plugin),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum StackedPaneHeaderDirection {
+    Vertical = 0,
+    Horizontal = 1,
+}
+impl StackedPaneHeaderDirection {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            StackedPaneHeaderDirection::Vertical => "Vertical",
+            StackedPaneHeaderDirection::Horizontal => "Horizontal",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "Vertical" => Some(Self::Vertical),
+            "Horizontal" => Some(Self::Horizontal),
             _ => None,
         }
     }
