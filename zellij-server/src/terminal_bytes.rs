@@ -17,6 +17,8 @@ use zellij_utils::{
     logging::debug_to_file,
 };
 
+const PANE_SYNC_IGNORE_CHECK_INTERVAL: Duration = Duration::from_millis(100);
+
 pub(crate) struct TerminalBytes {
     terminal_id: u32,
     senders: ThreadSenders,
@@ -25,10 +27,12 @@ pub(crate) struct TerminalBytes {
     child_pid: Option<u32>,
     runtime_configuration: Arc<RwLock<PtyRuntimeConfiguration>>,
     ignore_pane_synchronized_output: bool,
+    last_sync_ignore_check: Option<Instant>,
     debug: bool,
 }
 
 impl TerminalBytes {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         terminal_id: u32,
         async_reader: Box<dyn AsyncReader>,
@@ -36,6 +40,7 @@ impl TerminalBytes {
         os_input: Option<Box<dyn ServerOsApi>>,
         child_pid: Option<u32>,
         runtime_configuration: Arc<RwLock<PtyRuntimeConfiguration>>,
+        ignore_pane_synchronized_output: bool,
         debug: bool,
     ) -> Self {
         TerminalBytes {
@@ -45,10 +50,12 @@ impl TerminalBytes {
             os_input,
             child_pid,
             runtime_configuration,
-            ignore_pane_synchronized_output: false,
+            ignore_pane_synchronized_output,
+            last_sync_ignore_check: None,
             debug,
         }
     }
+
     pub async fn listen(&mut self) -> Result<()> {
         // This function reads bytes from the pty and then sends them as
         // ScreenInstruction::PtyBytes to screen to be parsed there
@@ -78,22 +85,9 @@ impl TerminalBytes {
                     if self.debug {
                         let _ = debug_to_file(bytes, self.terminal_id as i32);
                     }
-                    let should_ignore_pane_synchronized_output =
-                        self.pane_synchronized_output_should_be_ignored();
-                    if should_ignore_pane_synchronized_output
-                        != self.ignore_pane_synchronized_output
-                    {
-                        self.async_send_to_screen(
-                            ScreenInstruction::SetPaneSynchronizedOutputIgnore(
-                                PaneId::Terminal(self.terminal_id),
-                                should_ignore_pane_synchronized_output,
-                            ),
-                        )
+                    self.update_pane_synchronized_output_ignore_state()
                         .await
                         .with_context(err_context)?;
-                        self.ignore_pane_synchronized_output =
-                            should_ignore_pane_synchronized_output;
-                    }
                     self.async_send_to_screen(ScreenInstruction::PtyBytes(
                         self.terminal_id,
                         bytes.to_vec(),
@@ -148,6 +142,27 @@ impl TerminalBytes {
             &current_command,
             &runtime_configuration.pane_synchronized_output_ignore_commands,
         )
+    }
+
+    async fn update_pane_synchronized_output_ignore_state(&mut self) -> Result<()> {
+        let now = Instant::now();
+        if let Some(last_sync_ignore_check) = self.last_sync_ignore_check {
+            if now.duration_since(last_sync_ignore_check) < PANE_SYNC_IGNORE_CHECK_INTERVAL {
+                return Ok(());
+            }
+        }
+        self.last_sync_ignore_check = Some(now);
+        let should_ignore_pane_synchronized_output =
+            self.pane_synchronized_output_should_be_ignored();
+        if should_ignore_pane_synchronized_output != self.ignore_pane_synchronized_output {
+            self.async_send_to_screen(ScreenInstruction::SetPaneSynchronizedOutputIgnore(
+                PaneId::Terminal(self.terminal_id),
+                should_ignore_pane_synchronized_output,
+            ))
+            .await?;
+            self.ignore_pane_synchronized_output = should_ignore_pane_synchronized_output;
+        }
+        Ok(())
     }
 
     async fn async_send_to_screen(

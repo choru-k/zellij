@@ -1,7 +1,9 @@
 use crate::background_jobs::write_session_state_to_disk;
 use crate::background_jobs::BackgroundJob;
 use crate::global_async_runtime::get_tokio_runtime as async_runtime;
-use crate::os_input_output::{current_terminal_command, AsyncReader, NullAsyncReader};
+use crate::os_input_output::{
+    command_matches_path_or_basename, current_terminal_command, AsyncReader, NullAsyncReader,
+};
 use crate::route::NotificationEnd;
 use crate::terminal_bytes::TerminalBytes;
 use crate::{
@@ -951,6 +953,59 @@ impl Pty {
             terminal_cwds: HashMap::new(),
         }
     }
+
+    fn pane_synchronized_output_should_be_ignored(&self, child_pid: u32) -> bool {
+        let Some(os_input) = self.bus.os_input.as_ref() else {
+            return false;
+        };
+        let runtime_configuration = self.runtime_configuration.read().unwrap();
+        if runtime_configuration
+            .pane_synchronized_output_ignore_commands
+            .is_empty()
+        {
+            return false;
+        }
+        let Some(current_command) = current_terminal_command(
+            os_input.as_ref(),
+            child_pid,
+            &runtime_configuration.post_command_discovery_hook,
+        ) else {
+            return false;
+        };
+        command_matches_path_or_basename(
+            &current_command,
+            &runtime_configuration.pane_synchronized_output_ignore_commands,
+        )
+    }
+
+    fn update_pane_synchronized_output_ignore_state(&self, terminal_id: u32) -> Result<bool> {
+        let should_ignore = self
+            .id_to_child_pid
+            .get(&terminal_id)
+            .copied()
+            .map(|child_pid| self.pane_synchronized_output_should_be_ignored(child_pid))
+            .unwrap_or(false);
+        self.bus
+            .senders
+            .send_to_screen(ScreenInstruction::SetPaneSynchronizedOutputIgnore(
+                PaneId::Terminal(terminal_id),
+                should_ignore,
+            ))?;
+        Ok(should_ignore)
+    }
+
+    fn refresh_all_pane_synchronized_output_ignore_states(&self) {
+        for terminal_id in self.id_to_child_pid.keys().copied().collect::<Vec<_>>() {
+            self.update_pane_synchronized_output_ignore_state(terminal_id)
+                .with_context(|| {
+                    format!(
+                        "failed to refresh synchronized output ignore state for terminal pane {}",
+                        terminal_id
+                    )
+                })
+                .non_fatal();
+        }
+    }
     pub fn get_default_terminal(
         &self,
         cwd: Option<PathBuf>,
@@ -1159,6 +1214,18 @@ impl Pty {
             let senders = self.bus.senders.clone();
             let debug_to_file = self.debug_to_file;
             let os_input = self.bus.os_input.clone();
+            if let Some(child_pid) = child_pid {
+                self.id_to_child_pid.insert(terminal_id, child_pid);
+                self.capture_initial_cwd(terminal_id, child_pid);
+            }
+            let initial_ignore_pane_synchronized_output = self
+                .update_pane_synchronized_output_ignore_state(terminal_id)
+                .with_context(|| {
+                    format!(
+                        "failed to update synchronized output ignore state for terminal {}",
+                        terminal_id
+                    )
+                })?;
             let runtime_configuration = self.runtime_configuration.clone();
             async move {
                 TerminalBytes::new(
@@ -1168,6 +1235,7 @@ impl Pty {
                     os_input,
                     child_pid,
                     runtime_configuration,
+                    initial_ignore_pane_synchronized_output,
                     debug_to_file,
                 )
                 .listen()
@@ -1176,12 +1244,7 @@ impl Pty {
                 .fatal();
             }
         });
-
         self.task_handles.insert(terminal_id, terminal_bytes);
-        if let Some(child_pid) = child_pid {
-            self.id_to_child_pid.insert(terminal_id, child_pid);
-            self.capture_initial_cwd(terminal_id, child_pid);
-        }
 
         let starts_held = false;
         Ok((terminal_id, starts_held))
@@ -1363,27 +1426,29 @@ impl Pty {
             }
             match reader_result {
                 Ok(reader) => {
-                    let terminal_bytes = async_runtime().spawn({
-                        let senders = self.bus.senders.clone();
-                        let debug_to_file = self.debug_to_file;
-                        let os_input = self.bus.os_input.clone();
-                        let child_pid = self.id_to_child_pid.get(&terminal_id).copied();
-                        let runtime_configuration = self.runtime_configuration.clone();
-                        async move {
-                            TerminalBytes::new(
-                                terminal_id,
-                                reader,
-                                senders,
-                                os_input,
-                                child_pid,
-                                runtime_configuration,
-                                debug_to_file,
-                            )
-                            .listen()
-                            .await
-                            .context("failed to spawn terminals for layout")
-                            .fatal();
-                        }
+                    let senders = self.bus.senders.clone();
+                    let debug_to_file = self.debug_to_file;
+                    let os_input = self.bus.os_input.clone();
+                    let child_pid = self.id_to_child_pid.get(&terminal_id).copied();
+                    let initial_ignore_pane_synchronized_output = self
+                        .update_pane_synchronized_output_ignore_state(terminal_id)
+                        .with_context(err_context)?;
+                    let runtime_configuration = self.runtime_configuration.clone();
+                    let terminal_bytes = async_runtime().spawn(async move {
+                        TerminalBytes::new(
+                            terminal_id,
+                            reader,
+                            senders,
+                            os_input,
+                            child_pid,
+                            runtime_configuration,
+                            initial_ignore_pane_synchronized_output,
+                            debug_to_file,
+                        )
+                        .listen()
+                        .await
+                        .context("failed to spawn terminals for layout")
+                        .fatal();
                     });
                     self.task_handles.insert(terminal_id, terminal_bytes);
                 },
@@ -1542,27 +1607,29 @@ impl Pty {
             }
             match reader_result {
                 Ok(reader) => {
-                    let terminal_bytes = async_runtime().spawn({
-                        let senders = self.bus.senders.clone();
-                        let debug_to_file = self.debug_to_file;
-                        let os_input = self.bus.os_input.clone();
-                        let child_pid = self.id_to_child_pid.get(&terminal_id).copied();
-                        let runtime_configuration = self.runtime_configuration.clone();
-                        async move {
-                            TerminalBytes::new(
-                                terminal_id,
-                                reader,
-                                senders,
-                                os_input,
-                                child_pid,
-                                runtime_configuration,
-                                debug_to_file,
-                            )
-                            .listen()
-                            .await
-                            .context("failed to spawn terminals for layout")
-                            .fatal();
-                        }
+                    let senders = self.bus.senders.clone();
+                    let debug_to_file = self.debug_to_file;
+                    let os_input = self.bus.os_input.clone();
+                    let child_pid = self.id_to_child_pid.get(&terminal_id).copied();
+                    let initial_ignore_pane_synchronized_output = self
+                        .update_pane_synchronized_output_ignore_state(terminal_id)
+                        .with_context(err_context)?;
+                    let runtime_configuration = self.runtime_configuration.clone();
+                    let terminal_bytes = async_runtime().spawn(async move {
+                        TerminalBytes::new(
+                            terminal_id,
+                            reader,
+                            senders,
+                            os_input,
+                            child_pid,
+                            runtime_configuration,
+                            initial_ignore_pane_synchronized_output,
+                            debug_to_file,
+                        )
+                        .listen()
+                        .await
+                        .context("failed to spawn terminals for layout")
+                        .fatal();
                     });
                     self.task_handles.insert(terminal_id, terminal_bytes);
                 },
@@ -1932,6 +1999,13 @@ impl Pty {
                         os_input.re_run_command_in_terminal(id, run_command, quit_cb)
                     })
                     .with_context(err_context)?;
+                if let Some(child_pid) = child_pid {
+                    self.id_to_child_pid.insert(id, child_pid);
+                    self.capture_initial_cwd(id, child_pid);
+                }
+                let initial_ignore_pane_synchronized_output = self
+                    .update_pane_synchronized_output_ignore_state(id)
+                    .with_context(err_context)?;
                 let terminal_bytes = async_runtime().spawn({
                     let err_context =
                         |pane_id| format!("failed to run async task for pane {pane_id:?}");
@@ -1947,6 +2021,7 @@ impl Pty {
                             os_input,
                             child_pid,
                             runtime_configuration,
+                            initial_ignore_pane_synchronized_output,
                             debug_to_file,
                         )
                         .listen()
@@ -1957,10 +2032,6 @@ impl Pty {
                 });
 
                 self.task_handles.insert(id, terminal_bytes);
-                if let Some(child_pid) = child_pid {
-                    self.id_to_child_pid.insert(id, child_pid);
-                    self.capture_initial_cwd(id, child_pid);
-                }
                 if let Some(originating_plugin) = self.originating_plugins.get(&id) {
                     self.bus
                         .senders
@@ -2159,6 +2230,7 @@ impl Pty {
             post_command_discovery_hook,
             pane_synchronized_output_ignore_commands,
         );
+        self.refresh_all_pane_synchronized_output_ignore_states();
     }
 
     pub fn send_sigint_to_pane(&self, pane_id: PaneId) {

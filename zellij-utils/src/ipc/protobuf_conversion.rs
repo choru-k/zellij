@@ -676,7 +676,11 @@ impl From<crate::input::options::Options>
             post_command_discovery_hook: options.post_command_discovery_hook,
             pane_synchronized_output_ignore_commands: options
                 .pane_synchronized_output_ignore_commands
+                .clone()
                 .unwrap_or_default(),
+            pane_synchronized_output_ignore_commands_is_set: options
+                .pane_synchronized_output_ignore_commands
+                .map(|_| true),
             client_async_worker_tasks: options.client_async_worker_tasks.map(|v| v as u64),
             visual_bell: options.visual_bell,
             focus_follows_mouse: options.focus_follows_mouse,
@@ -773,12 +777,12 @@ impl TryFrom<crate::client_server_contract::client_server_contract::Options>
             enforce_https_for_localhost: options.enforce_https_for_localhost,
             post_command_discovery_hook: options.post_command_discovery_hook,
             pane_synchronized_output_ignore_commands: if options
-                .pane_synchronized_output_ignore_commands
-                .is_empty()
+                .pane_synchronized_output_ignore_commands_is_set
+                .unwrap_or(false)
             {
-                None
-            } else {
                 Some(options.pane_synchronized_output_ignore_commands)
+            } else {
+                None
             },
             client_async_worker_tasks: options.client_async_worker_tasks.map(|v| v as usize),
             visual_bell: options.visual_bell,

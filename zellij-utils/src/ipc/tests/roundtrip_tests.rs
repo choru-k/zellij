@@ -34,6 +34,20 @@ fn server_client_contract() {
     test_server_messages();
 }
 
+#[test]
+fn options_proto_roundtrip_preserves_explicit_empty_sync_ignore_list() {
+    use crate::client_server_contract::client_server_contract::Options as ProtoOptions;
+
+    let original = Options {
+        pane_synchronized_output_ignore_commands: Some(vec![]),
+        ..Default::default()
+    };
+    let proto: ProtoOptions = original.clone().into();
+    let roundtripped = Options::try_from(proto).unwrap();
+
+    assert_eq!(roundtripped, original);
+}
+
 fn test_client_messages() {
     let empty_context = BTreeMap::new();
     let mut demo_context = BTreeMap::new();
