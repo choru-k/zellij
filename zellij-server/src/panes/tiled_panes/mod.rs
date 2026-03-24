@@ -841,6 +841,24 @@ impl TiledPanes {
         }
         None
     }
+    fn apply_stacked_pane_geom_overrides(
+        &mut self,
+        stacked_pane_headers: &HashMap<PaneId, StackedPaneHeader>,
+    ) {
+        let expanded_stack_pane_ids: HashSet<PaneId> =
+            stacked_pane_headers.keys().copied().collect();
+        for (pane_id, pane) in self.panes.iter_mut() {
+            if expanded_stack_pane_ids.contains(pane_id) {
+                if let Some(stack_header) = stacked_pane_headers.get(pane_id) {
+                    pane.set_geom_override(stack_header.full_stack_geom);
+                }
+            } else if pane.position_and_size().is_stacked() && pane.geom_override().is_some() {
+                pane.reset_size_and_position_override();
+            }
+        }
+    }
+
+
     pub fn set_pane_frames(&mut self, draw_pane_frames: bool) {
         self.draw_pane_frames = draw_pane_frames;
         let viewport = *self.viewport.borrow();
@@ -1461,6 +1479,7 @@ impl TiledPanes {
                 .collect()
         };
         let stacked_pane_headers = self.stacked_pane_headers();
+        self.apply_stacked_pane_geom_overrides(&stacked_pane_headers);
         let mut stacked_pane_header_specs_by_client: HashMap<
             ClientId,
             HashMap<PaneId, StackedPaneHeaderSpec>,
@@ -1499,9 +1518,6 @@ impl TiledPanes {
             } else {
                 None
             };
-            if let Some(stack_header) = stack_header {
-                pane.set_geom_override(stack_header.full_stack_geom);
-            }
             match kind {
                 PaneId::Terminal(_) => {
                     output.add_pane_contents(
@@ -1546,7 +1562,8 @@ impl TiledPanes {
                     stacked_pane_ids_on_bottom_of_stacks.contains(&pane.pid());
                 let should_draw_pane_frames = self.draw_pane_frames;
                 let pane_is_stacked = pane.current_geom().is_stacked();
-                let pane_is_one_liner_in_stack = pane_is_stacked && stack_header.is_none();
+                let pane_is_one_liner_in_stack =
+                    pane_is_stacked && stack_header.is_none() && pane.current_geom().rows.is_fixed();
                 let pane_is_selectable = pane.selectable();
                 let show_help_text = active_panes.iter().any(|(client_id, pane_id)| {
                     pane_id == &pane.pid()
@@ -1698,9 +1715,6 @@ impl TiledPanes {
                             )
                             .with_context(err_context)?;
                     }
-                }
-                if stack_header.is_some() {
-                    pane.reset_size_and_position_override();
                 }
             }
         }

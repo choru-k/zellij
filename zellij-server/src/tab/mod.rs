@@ -3105,8 +3105,9 @@ impl Tab {
     }
     pub fn set_should_clear_display_before_rendering(&mut self) {
         self.should_clear_display_before_rendering = true;
+        self.tiled_panes.set_force_render();
         self.floating_panes.set_force_render(); // we do this to make sure pinned panes are
-                                                // rendered even if their surface is not visible
+        // rendered even if their surface is not visible
     }
     pub fn is_sync_panes_active(&self) -> bool {
         self.synchronize_is_active

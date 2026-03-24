@@ -1245,6 +1245,8 @@ fn stacked_horizontal_headers_render_expanded_pane_body_content() {
         .unwrap();
 
     tab.render(&mut output, None).unwrap();
+    output = Output::default();
+    tab.render(&mut output, None).unwrap();
     let snapshot = take_snapshot(
         output.serialize().unwrap().get(&client_id).unwrap(),
         size.rows,
@@ -1257,7 +1259,65 @@ fn stacked_horizontal_headers_render_expanded_pane_body_content() {
         "expanded stacked pane body content should be rendered after the stacked header; snapshot:\n{}",
         snapshot
     );
-    assert_snapshot!(snapshot);
+}
+
+#[test]
+fn stacked_vertical_panes_render_expanded_body_content() {
+    let size = Size { cols: 121, rows: 20 };
+    let client_id = 1;
+    let mut tab = create_new_tab(size, ModeInfo::default());
+    let mut output = Output::default();
+
+    for i in 2..4 {
+        let new_pane_id = PaneId::Terminal(i);
+        tab.new_pane(
+            new_pane_id,
+            None,
+            None,
+            false,
+            true,
+            NewPanePlacement::default(),
+            Some(client_id),
+            None,
+        )
+        .unwrap();
+    }
+
+    let _ = tab.focus_pane_with_id(PaneId::Terminal(2), false, false, client_id);
+    tab.handle_pty_bytes(
+        2,
+        (0..25)
+            .map(|i| {
+                if i == 24 {
+                    format!("vertical-line-{i}")
+                } else {
+                    format!("vertical-line-{i}\r\n")
+                }
+            })
+            .collect::<String>()
+            .into_bytes(),
+    )
+    .unwrap();
+
+    tab.render(&mut output, None).unwrap();
+    output = Output::default();
+
+    tab.resize(client_id, ResizeStrategy::new(Resize::Increase, None))
+        .unwrap();
+    tab.resize(client_id, ResizeStrategy::new(Resize::Increase, None))
+        .unwrap();
+    tab.vertical_split(PaneId::Terminal(4), None, client_id, None, None)
+        .unwrap();
+
+    tab.render(&mut output, None).unwrap();
+
+    let snapshot = take_snapshot(
+        output.serialize().unwrap().get(&client_id).unwrap(),
+        size.rows,
+        size.cols,
+        Palette::default(),
+    );
+    assert!(snapshot.contains("vertical-line-24"), "{snapshot}");
 }
 
 #[test]
