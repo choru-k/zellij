@@ -34,6 +34,7 @@ fn server_client_contract() {
     test_server_messages();
 }
 
+
 fn test_client_messages() {
     let empty_context = BTreeMap::new();
     let mut demo_context = BTreeMap::new();

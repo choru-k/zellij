@@ -1220,3 +1220,58 @@ impl PaneFrame {
         ret
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_render_applies_background_to_title_row() {
+        let background = PaletteColor::Rgb((255, 0, 255));
+        let frame = PaneFrame::new(
+            Viewport {
+                x: 0,
+                y: 0,
+                rows: 3,
+                cols: 10,
+            },
+            (0, 0),
+            "Pane #1".to_string(),
+            FrameParams {
+                focused_client: None,
+                is_main_client: true,
+                other_focused_clients: vec![],
+                style: Style::default(),
+                border_style: Some(PaneBorderStyle {
+                    fg: None,
+                    bg: Some(background),
+                }),
+                other_cursors_exist_in_session: false,
+                pane_is_stacked_under: false,
+                pane_is_stacked_over: false,
+                should_draw_pane_frames: true,
+                pane_is_floating: false,
+                content_offset: Offset::default(),
+                mouse_is_hovering_over_pane: false,
+                pane_is_selectable: true,
+                show_help_text: false,
+                highlight_tooltip: None,
+            },
+        );
+
+        let (character_chunks, _post_vte) = frame.render().unwrap();
+        let title_row = character_chunks
+            .iter()
+            .find(|chunk| chunk.y == 0)
+            .expect("frame render should include title row");
+
+        assert!(
+            title_row
+                .terminal_characters
+                .iter()
+                .all(|character| character.styles.background == Some(AnsiCode::from(background))),
+            "expected title row background to be rendered on every title-row character: {:?}",
+            title_row.terminal_characters
+        );
+    }
+}
