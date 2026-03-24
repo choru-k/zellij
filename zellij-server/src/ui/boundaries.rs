@@ -4,12 +4,9 @@ use crate::output::CharacterChunk;
 use crate::panes::terminal_character::{TerminalCharacter, EMPTY_TERMINAL_CHARACTER, RESET_STYLES};
 use crate::tab::Pane;
 use crate::ui::pane_boundaries_frame::PaneBorderStyle;
-use ansi_term::{Colour::{Fixed, RGB}, Style as AnsiStyle};
 use std::collections::HashMap;
 use zellij_utils::errors::prelude::*;
 use zellij_utils::{data::PaletteColor, shared::colors};
-
-use std::fmt::{Display, Error, Formatter};
 pub mod boundary_type {
     pub const TOP_RIGHT: &str = "┐";
     pub const TOP_RIGHT_ROUND: &str = "╮";
@@ -31,10 +28,44 @@ pub mod boundary_type {
 pub type BoundaryType = &'static str; // easy way to refer to boundary_type above
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BoundaryStyle {
+    fg: Option<(PaletteColor, usize)>,
+    bg: Option<(PaletteColor, usize)>,
+}
+
+impl BoundaryStyle {
+    pub fn from_style(border_style: PaneBorderStyle, precedence: usize) -> Self {
+        Self {
+            fg: border_style.fg.map(|color| (color, precedence)),
+            bg: border_style.bg.map(|color| (color, precedence)),
+        }
+    }
+    pub fn overlay(self, overlay: Self) -> Self {
+        Self {
+            fg: overlay.fg.or(self.fg),
+            bg: overlay.bg.or(self.bg),
+        }
+    }
+    pub fn merge(self, other: Self) -> Self {
+        Self {
+            fg: merge_color_with_precedence(self.fg, other.fg),
+            bg: merge_color_with_precedence(self.bg, other.bg),
+        }
+    }
+    pub fn into_pane_border_style(self) -> Option<PaneBorderStyle> {
+        let border_style = PaneBorderStyle {
+            fg: self.fg.map(|(color, _)| color),
+            bg: self.bg.map(|(color, _)| color),
+        };
+        (!border_style.is_empty()).then_some(border_style)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BoundarySymbol {
     boundary_type: BoundaryType,
     invisible: bool,
-    border_style: Option<(PaneBorderStyle, usize)>, // (style, precedence)
+    border_style: Option<BoundaryStyle>,
 }
 
 impl BoundarySymbol {
@@ -42,10 +73,13 @@ impl BoundarySymbol {
         BoundarySymbol {
             boundary_type,
             invisible: false,
-            border_style: Some((PaneBorderStyle::foreground(PaletteColor::EightBit(colors::GRAY)), 0)),
+            border_style: Some(BoundaryStyle::from_style(
+                PaneBorderStyle::foreground(PaletteColor::EightBit(colors::GRAY)),
+                0,
+            )),
         }
     }
-    pub fn border_style(&mut self, border_style: Option<(PaneBorderStyle, usize)>) -> Self {
+    pub fn border_style(&mut self, border_style: Option<BoundaryStyle>) -> Self {
         self.border_style = border_style;
         *self
     }
@@ -69,11 +103,11 @@ impl BoundarySymbol {
                 RESET_STYLES
                     .foreground(
                         self.border_style
-                            .and_then(|(border_style, _precedence)| border_style.fg.map(Into::into)),
+                            .and_then(|border_style| border_style.fg.map(|(color, _)| color.into())),
                     )
                     .background(
                         self.border_style
-                            .and_then(|(border_style, _precedence)| border_style.bg.map(Into::into)),
+                            .and_then(|border_style| border_style.bg.map(|(color, _)| color.into())),
                     )
                     .into(),
             )
@@ -82,36 +116,21 @@ impl BoundarySymbol {
     }
 }
 
-fn apply_color(style: AnsiStyle, color: PaletteColor, is_background: bool) -> AnsiStyle {
-    match (color, is_background) {
-        (PaletteColor::Rgb((r, g, b)), false) => style.fg(RGB(r, g, b)),
-        (PaletteColor::Rgb((r, g, b)), true) => style.on(RGB(r, g, b)),
-        (PaletteColor::EightBit(color), false) => style.fg(Fixed(color)),
-        (PaletteColor::EightBit(color), true) => style.on(Fixed(color)),
+fn merge_color_with_precedence(
+    current_color: Option<(PaletteColor, usize)>,
+    next_color: Option<(PaletteColor, usize)>,
+) -> Option<(PaletteColor, usize)> {
+    match (current_color, next_color) {
+        (Some(current_color), Some(next_color)) => {
+            if current_color.1 >= next_color.1 {
+                Some(current_color)
+            } else {
+                Some(next_color)
+            }
+        },
+        _ => current_color.or(next_color),
     }
 }
-
-impl Display for BoundarySymbol {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        match self.invisible {
-            true => write!(f, " "),
-            false => match self.border_style {
-                Some((border_style, _precedence)) => {
-                    let mut style = AnsiStyle::new();
-                    if let Some(fg) = border_style.fg {
-                        style = apply_color(style, fg, false);
-                    }
-                    if let Some(bg) = border_style.bg {
-                        style = apply_color(style, bg, true);
-                    }
-                    write!(f, "{}", style.paint(self.boundary_type))
-                },
-                None => write!(f, "{}", self.boundary_type),
-            },
-        }
-    }
-}
-
 fn combine_symbols(
     current_symbol: BoundarySymbol,
     next_symbol: BoundarySymbol,
@@ -119,13 +138,7 @@ fn combine_symbols(
     use boundary_type::*;
     let invisible = current_symbol.invisible || next_symbol.invisible;
     let border_style = match (current_symbol.border_style, next_symbol.border_style) {
-        (Some(current_symbol_style), Some(next_symbol_style)) => {
-            if current_symbol_style.1 >= next_symbol_style.1 {
-                Some(current_symbol_style)
-            } else {
-                Some(next_symbol_style)
-            }
-        },
+        (Some(current_style), Some(next_style)) => Some(current_style.merge(next_style)),
         _ => current_symbol.border_style.or(next_symbol.border_style),
     };
     match (current_symbol.boundary_type, next_symbol.boundary_type) {
@@ -347,7 +360,7 @@ impl Boundaries {
     pub fn add_rect(
         &mut self,
         rect: &dyn Pane,
-        border_style: Option<(PaneBorderStyle, usize)>, // (style, precedence)
+        border_style: Option<BoundaryStyle>,
         pane_is_on_top_of_stack: bool,
         pane_is_on_bottom_of_stack: bool,
         pane_is_stacked_under: bool,
@@ -541,5 +554,60 @@ impl Boundaries {
             && rect.x() + rect.cols() <= self.viewport.x + self.viewport.cols
             && rect.y() >= self.viewport.y
             && rect.y() + rect.rows() <= self.viewport.y + self.viewport.rows
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn boundary_style_overlay_preserves_existing_foreground() {
+        let base = BoundaryStyle::from_style(
+            PaneBorderStyle::foreground(PaletteColor::Rgb((0, 224, 0))),
+            3,
+        );
+        let overlay = BoundaryStyle::from_style(
+            PaneBorderStyle {
+                fg: None,
+                bg: Some(PaletteColor::Rgb((0, 26, 58))),
+            },
+            4,
+        );
+
+        let merged = base.overlay(overlay).into_pane_border_style();
+
+        assert_eq!(
+            merged,
+            Some(PaneBorderStyle {
+                fg: Some(PaletteColor::Rgb((0, 224, 0))),
+                bg: Some(PaletteColor::Rgb((0, 26, 58))),
+            })
+        );
+    }
+
+    #[test]
+    fn boundary_style_merge_preserves_existing_background() {
+        let current = BoundaryStyle::from_style(
+            PaneBorderStyle {
+                fg: None,
+                bg: Some(PaletteColor::Rgb((0, 26, 58))),
+            },
+            4,
+        );
+        let next = BoundaryStyle::from_style(
+            PaneBorderStyle::foreground(PaletteColor::Rgb((0, 224, 0))),
+            5,
+        );
+
+        let merged = current.merge(next).into_pane_border_style();
+
+        assert_eq!(
+            merged,
+            Some(PaneBorderStyle {
+                fg: Some(PaletteColor::Rgb((0, 224, 0))),
+                bg: Some(PaletteColor::Rgb((0, 26, 58))),
+            })
+        );
     }
 }

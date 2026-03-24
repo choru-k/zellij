@@ -1,7 +1,7 @@
 use crate::output::Output;
 use crate::panes::PaneId;
 use crate::tab::Pane;
-use crate::ui::boundaries::Boundaries;
+use crate::ui::boundaries::{Boundaries, BoundaryStyle};
 use crate::ui::pane_boundaries_frame::{FrameParams, PaneBorderStyle};
 use crate::ClientId;
 use std::collections::{HashMap, HashSet};
@@ -241,7 +241,7 @@ impl<'a> PaneContentsAndUi<'a> {
                 is_main_client: pane_focused_for_client_id,
                 other_focused_clients: vec![],
                 style: self.style,
-                border_style: frame_style.map(|style| style.0),
+                border_style: frame_style,
                 other_cursors_exist_in_session: false,
                 pane_is_stacked_over: self.pane_is_stacked_over,
                 pane_is_stacked_under: self.pane_is_stacked_under,
@@ -261,7 +261,7 @@ impl<'a> PaneContentsAndUi<'a> {
                 is_main_client: pane_focused_for_client_id,
                 other_focused_clients,
                 style: self.style,
-                border_style: frame_style.map(|style| style.0),
+                border_style: frame_style,
                 other_cursors_exist_in_session: self.multiple_users_exist_in_session,
                 pane_is_stacked_over: self.pane_is_stacked_over,
                 pane_is_stacked_under: self.pane_is_stacked_under,
@@ -302,7 +302,7 @@ impl<'a> PaneContentsAndUi<'a> {
         pane_is_on_top_of_stack: bool,
         pane_is_on_bottom_of_stack: bool,
     ) {
-        let border_style = self.frame_style(client_id, client_mode, session_is_mirrored);
+        let border_style = self.boundary_style(client_id, client_mode, session_is_mirrored);
         boundaries.add_rect(
             self.pane.as_ref(),
             border_style,
@@ -316,49 +316,104 @@ impl<'a> PaneContentsAndUi<'a> {
         client_id: ClientId,
         mode: InputMode,
         session_is_mirrored: bool,
-    ) -> Option<(PaneBorderStyle, usize)> {
-        // (border_style, precedence) (precedence is used for the no-pane-frames mode)
+    ) -> Option<PaneBorderStyle> {
+        self.boundary_style(client_id, mode, session_is_mirrored)
+            .and_then(|style| style.into_pane_border_style())
+    }
+    fn boundary_style(
+        &self,
+        client_id: ClientId,
+        mode: InputMode,
+        session_is_mirrored: bool,
+    ) -> Option<BoundaryStyle> {
         let pane_focused_for_client_id = self.focused_clients.contains(&client_id);
         let pane_is_in_group = self
             .current_pane_group
             .get(&client_id)
             .map(|p| p.contains(&self.pane.pid()))
             .unwrap_or(false);
-        if self.pane.frame_style_override().is_some() && !pane_is_in_group {
-            self.pane
-                .frame_style_override()
-                .map(|override_style| (override_style, 4))
-        } else if pane_is_in_group && !pane_focused_for_client_id {
-            Some((PaneBorderStyle::foreground(self.style.colors.frame_highlight.emphasis_0), 2))
+
+        let mut boundary_style = self.base_boundary_style(
+            client_id,
+            mode,
+            session_is_mirrored,
+            pane_focused_for_client_id,
+            pane_is_in_group,
+        );
+
+        if let Some(custom_style) = self.pane.frame_style() {
+            let custom_style = BoundaryStyle::from_style(custom_style, 4);
+            boundary_style = Some(match boundary_style {
+                Some(boundary_style) => boundary_style.overlay(custom_style),
+                None => custom_style,
+            });
+        }
+
+        if let Some(override_style) = self.pane.frame_style_override() {
+            if !pane_is_in_group {
+                let override_style = BoundaryStyle::from_style(override_style, 5);
+                boundary_style = Some(match boundary_style {
+                    Some(boundary_style) => boundary_style.overlay(override_style),
+                    None => override_style,
+                });
+            }
+        }
+
+        boundary_style
+    }
+    fn base_boundary_style(
+        &self,
+        client_id: ClientId,
+        mode: InputMode,
+        session_is_mirrored: bool,
+        pane_focused_for_client_id: bool,
+        pane_is_in_group: bool,
+    ) -> Option<BoundaryStyle> {
+        if pane_is_in_group && !pane_focused_for_client_id {
+            Some(BoundaryStyle::from_style(
+                PaneBorderStyle::foreground(self.style.colors.frame_highlight.emphasis_0),
+                2,
+            ))
         } else if pane_is_in_group && pane_focused_for_client_id {
-            Some((PaneBorderStyle::foreground(self.style.colors.frame_highlight.emphasis_1), 3))
-        } else if self.pane.frame_style().is_some() {
-            self.pane.frame_style().map(|style| (style, 4))
+            Some(BoundaryStyle::from_style(
+                PaneBorderStyle::foreground(self.style.colors.frame_highlight.emphasis_1),
+                3,
+            ))
         } else if pane_focused_for_client_id {
             match mode {
                 InputMode::Normal | InputMode::Locked => {
                     if session_is_mirrored || !self.multiple_users_exist_in_session {
-                        Some((PaneBorderStyle::foreground(self.style.colors.frame_selected.base), 3))
+                        Some(BoundaryStyle::from_style(
+                            PaneBorderStyle::foreground(self.style.colors.frame_selected.base),
+                            3,
+                        ))
                     } else {
                         let colors = client_id_to_colors(
                             client_id,
                             self.style.colors.multiplayer_user_colors,
                         );
-                        colors.map(|colors| (PaneBorderStyle::foreground(colors.0), 3))
+                        colors.map(|colors| {
+                            BoundaryStyle::from_style(PaneBorderStyle::foreground(colors.0), 3)
+                        })
                     }
                 },
-                _ => Some((PaneBorderStyle::foreground(self.style.colors.frame_highlight.base), 3)),
+                _ => Some(BoundaryStyle::from_style(
+                    PaneBorderStyle::foreground(self.style.colors.frame_highlight.base),
+                    3,
+                )),
             }
         } else if self
             .mouse_is_hovering_over_pane_for_clients
             .contains(&client_id)
         {
-            Some((PaneBorderStyle::foreground(self.style.colors.frame_highlight.base), 1))
+            Some(BoundaryStyle::from_style(
+                PaneBorderStyle::foreground(self.style.colors.frame_highlight.base),
+                1,
+            ))
         } else {
-            self.style
-                .colors
-                .frame_unselected
-                .map(|frame| (PaneBorderStyle::foreground(frame.base), 0))
+            self.style.colors.frame_unselected.map(|frame| {
+                BoundaryStyle::from_style(PaneBorderStyle::foreground(frame.base), 0)
+            })
         }
     }
 }

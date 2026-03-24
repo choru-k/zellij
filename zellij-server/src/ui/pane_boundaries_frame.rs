@@ -22,6 +22,15 @@ impl PaneBorderStyle {
             bg: None,
         }
     }
+    pub fn merge(self, overlay: Self) -> Self {
+        Self {
+            fg: overlay.fg.or(self.fg),
+            bg: overlay.bg.or(self.bg),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.fg.is_none() && self.bg.is_none()
+    }
 }
 
 fn styled_text_with_colors(

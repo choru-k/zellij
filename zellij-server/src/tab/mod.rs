@@ -70,6 +70,19 @@ use zellij_utils::{
     pane_size::{Offset, PaneGeom, Size, SizeInPixels, Viewport},
 };
 
+fn parse_pane_border_style_color(
+    color: Option<String>,
+    color_name: &str,
+ ) -> Result<Option<PaletteColor>> {
+    color
+        .map(|color| {
+            xparse_palette_color(&color)
+                .ok_or_else(|| anyhow!("Failed to parse pane border {color_name}: {color}"))
+        })
+        .transpose()
+}
+
+
 #[macro_export]
 macro_rules! resize_pty {
     ($pane:expr, $os_input:expr, $senders:expr) => {{
@@ -2618,20 +2631,11 @@ impl Tab {
             .or_else(|| self.tiled_panes.get_pane_mut(pane_id))
             .or_else(|| self.suppressed_panes.get_mut(&pane_id).map(|p| &mut p.1));
         if let Some(pane) = pane {
-            let parse_color = |color: Option<String>, color_name: &str| -> Result<Option<PaletteColor>> {
-                color
-                    .map(|color| {
-                        xparse_palette_color(&color).ok_or_else(|| {
-                            anyhow!("Failed to parse pane border {color_name}: {color}")
-                        })
-                    })
-                    .transpose()
-            };
             let border_style = PaneBorderStyle {
-                fg: parse_color(fg, "foreground color")?,
-                bg: parse_color(bg, "background color")?,
+                fg: parse_pane_border_style_color(fg, "foreground color")?,
+                bg: parse_pane_border_style_color(bg, "background color")?,
             };
-            let border_style = if border_style == PaneBorderStyle::default() {
+            let border_style = if border_style.is_empty() {
                 None
             } else {
                 Some(border_style)
