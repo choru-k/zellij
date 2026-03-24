@@ -2,7 +2,7 @@
 source: zellij-server/src/tab/unit/tab_integration_tests.rs
 expression: snapshot
 ---
-00 (C): ┌│ Pane #1 │[Pane #2]│ Pane #3 │────────────────────────────────────────────────────────────────────────────────────────┐
+00 (C): ┌│ Pane #1 │ Pane #2 │ Pane #3 │────────────────────────────────────────────────────────────────────────────────────────┐
 01 (C): │stack-line-1                                                                                                           │
 02 (C): │stack-line-2                                                                                                           │
 03 (C): │stack-line-3                                                                                                           │

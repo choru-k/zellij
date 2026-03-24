@@ -1222,14 +1222,6 @@ fn stacked_horizontal_headers_render_expanded_pane_body_content() {
         .unwrap();
     }
 
-    // These resizes stack panes 2..4 on the right side, with pane 2 as the expanded pane.
-    tab.resize(client_id, ResizeStrategy::new(Resize::Increase, None))
-        .unwrap();
-    tab.resize(client_id, ResizeStrategy::new(Resize::Increase, None))
-        .unwrap();
-    tab.horizontal_split(PaneId::Terminal(4), None, client_id, None, None)
-        .unwrap();
-
     let _ = tab.focus_pane_with_id(PaneId::Terminal(2), false, false, client_id);
     tab.handle_pty_bytes(
         2,
@@ -1238,6 +1230,19 @@ fn stacked_horizontal_headers_render_expanded_pane_body_content() {
         ),
     )
     .unwrap();
+
+    // First render before stacking so the regression is caught even when no new PTY bytes arrive
+    // after the pane becomes the expanded pane in the stack.
+    tab.render(&mut output, None).unwrap();
+    output = Output::default();
+
+    // These resizes stack panes 2..4 on the right side, with pane 2 as the expanded pane.
+    tab.resize(client_id, ResizeStrategy::new(Resize::Increase, None))
+        .unwrap();
+    tab.resize(client_id, ResizeStrategy::new(Resize::Increase, None))
+        .unwrap();
+    tab.horizontal_split(PaneId::Terminal(4), None, client_id, None, None)
+        .unwrap();
 
     tab.render(&mut output, None).unwrap();
     let snapshot = take_snapshot(
