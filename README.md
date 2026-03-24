@@ -53,17 +53,44 @@ You can get started by [installing](https://zellij.dev/documentation/installatio
 
 For more details about our future plans, read about upcoming features in our [roadmap](#roadmap).
 
+## What is different in this fork?
+
+This repository is a fork of upstream Zellij with a small set of workflow-focused additions aimed at interactive AI/agent usage, better stacked-pane ergonomics, and richer pane styling.
+
+The main fork-specific changes so far are:
+
+1. **Per-command synchronized-output opt-out** ([PR #1](https://github.com/choru-k/zellij/pull/1))
+   - Adds `pane_synchronized_output_ignore_commands` so selected commands can bypass pane-emitted synchronized output.
+   - Useful for streaming terminal apps such as `pi`, `codex`, and similar tools that otherwise look visually stalled until the next redraw.
+   - Tracks the current foreground command, so it also works when those tools are started from inside a shell pane rather than launched as the pane process itself.
+
+2. **Plugin-backed stacked pane headers** ([PR #2](https://github.com/choru-k/zellij/pull/2))
+   - Adds configurable stacked pane direction, including left-aligned horizontal stacked tabs.
+   - Adds a plugin-backed stacked pane header provider, allowing a background plugin to supply structured header content, styling, alignment, and actions.
+   - Includes the supporting interaction model: header hit-testing, mouse actions, caching, builtin fallback behavior, and provider lifecycle fixes across tabs/reloads.
+
+3. **Richer pane border styling** ([PR #3](https://github.com/choru-k/zellij/pull/3))
+   - Replaces the old pane border color action with a more complete pane border style action that supports `--fg`, `--bg`, and `--reset`.
+   - Preserves full border style data through pane, frame, and boundary rendering, including title-row and border backgrounds.
+   - Fixes the live IPC delivery bug so `set-pane-border-style` works reliably in real sessions, not just in isolated code paths.
+
+If you want the standard upstream experience, upstream Zellij remains the canonical project. This fork is for users who specifically want the workflow changes above on top of the current upstream base.
+
 ## How do I install it?
+If you want the fork-specific features described above, install from this fork rather than the upstream release artifacts.
 
-The easiest way to install Zellij is through a [package for your OS](./docs/THIRD_PARTY_INSTALL.md).
-
-If one is not available for your OS, you could download a prebuilt binary from the [latest release](https://github.com/zellij-org/zellij/releases/latest) and place it in your `$PATH`. If you'd like, we could [automatically choose one for you](#try-zellij-without-installing).
-
-You can also install (compile) with `cargo`:
-
+The most direct option is to build from this repository:
 ```
-cargo install --locked zellij
+cargo xtask build
+./target/debug/zellij
 ```
+
+You can also install directly with Cargo from the fork:
+```
+cargo install --locked --git https://github.com/choru-k/zellij zellij
+```
+
+If you want the standard upstream experience instead, the easiest way to install Zellij is through a [package for your OS](./docs/THIRD_PARTY_INSTALL.md). If one is not available for your OS, you can use the [latest upstream release](https://github.com/zellij-org/zellij/releases/latest).
 
 #### Try Zellij without installing
 
