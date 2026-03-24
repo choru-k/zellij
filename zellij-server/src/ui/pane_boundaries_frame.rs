@@ -190,7 +190,7 @@ impl PaneFrame {
         self.is_first_run = true;
     }
     pub fn override_style(&mut self, border_style: PaneBorderStyle) {
-        self.border_style = Some(border_style);
+        self.border_style = Some(self.border_style.unwrap_or_default().merge(border_style));
     }
     fn client_cursor(&self, client_id: ClientId) -> Vec<TerminalCharacter> {
         let color = client_id_to_colors(client_id, self.style.colors.multiplayer_user_colors);
@@ -1271,6 +1271,66 @@ mod tests {
                 .iter()
                 .all(|character| character.styles.background == Some(AnsiCode::from(background))),
             "expected title row background to be rendered on every title-row character: {:?}",
+            title_row.terminal_characters
+        );
+    }
+
+    #[test]
+    fn frame_override_style_preserves_existing_background() {
+        let background = PaletteColor::Rgb((255, 0, 255));
+        let override_foreground = PaletteColor::Rgb((0, 224, 0));
+        let mut frame = PaneFrame::new(
+            Viewport {
+                x: 0,
+                y: 0,
+                rows: 3,
+                cols: 10,
+            },
+            (0, 0),
+            "Pane #1".to_string(),
+            FrameParams {
+                focused_client: None,
+                is_main_client: true,
+                other_focused_clients: vec![],
+                style: Style::default(),
+                border_style: Some(PaneBorderStyle {
+                    fg: None,
+                    bg: Some(background),
+                }),
+                other_cursors_exist_in_session: false,
+                pane_is_stacked_under: false,
+                pane_is_stacked_over: false,
+                should_draw_pane_frames: true,
+                pane_is_floating: false,
+                content_offset: Offset::default(),
+                mouse_is_hovering_over_pane: false,
+                pane_is_selectable: true,
+                show_help_text: false,
+                highlight_tooltip: None,
+            },
+        );
+        frame.override_style(PaneBorderStyle::foreground(override_foreground));
+
+        let (character_chunks, _post_vte) = frame.render().unwrap();
+        let title_row = character_chunks
+            .iter()
+            .find(|chunk| chunk.y == 0)
+            .expect("frame render should include title row");
+
+        assert!(
+            title_row
+                .terminal_characters
+                .iter()
+                .all(|character| character.styles.background == Some(AnsiCode::from(background))),
+            "expected override style to preserve the existing background: {:?}",
+            title_row.terminal_characters
+        );
+        assert!(
+            title_row
+                .terminal_characters
+                .iter()
+                .any(|character| character.styles.foreground == Some(AnsiCode::from(override_foreground))),
+            "expected override style to apply the new foreground: {:?}",
             title_row.terminal_characters
         );
     }
