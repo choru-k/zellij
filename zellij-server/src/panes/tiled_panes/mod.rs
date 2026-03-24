@@ -633,19 +633,15 @@ impl TiledPanes {
         self.latest_stacked_pane_header_specs_by_stack.clear();
     }
 
-    pub fn matches_stacked_pane_header_provider(
-        &self,
-        run_plugin_or_alias: &RunPluginOrAlias,
-    ) -> bool {
-        self.stacked_pane_header_provider.as_ref().map_or(false, |provider| {
-            provider
-                .plugin
-                .is_equivalent_to_run(&Some(Run::Plugin(run_plugin_or_alias.clone())))
-        })
-    }
-
-    pub fn set_stacked_pane_header_provider_plugin_id(&mut self, plugin_id: Option<u32>) {
+    pub fn set_stacked_pane_header_provider_plugin_id(&mut self, plugin_id: Option<u32>) -> bool {
+        if self.stacked_pane_header_provider_plugin_id == plugin_id {
+            return false;
+        }
         self.stacked_pane_header_provider_plugin_id = plugin_id;
+        self.stacked_pane_header_specs.clear();
+        self.requested_stacked_pane_header_contexts.clear();
+        self.latest_stacked_pane_header_specs_by_stack.clear();
+        true
     }
 
     pub fn update_stacked_pane_header(&mut self, update: StackedPaneHeaderUpdate) {
@@ -1631,8 +1627,7 @@ impl TiledPanes {
                                 .copied()
                                 .filter(|pane_id| {
                                     stack_header.tabs.iter().any(|tab| tab.pane_id == *pane_id)
-                                })
-                                .or_else(|| Some(stack_header.expanded_pane_id));
+                                });
                             let stacked_pane_header_spec = stacked_pane_header_specs_by_client
                                 .get(client_id)
                                 .and_then(|specs_for_client| specs_for_client.get(&pane_id));
@@ -1653,8 +1648,7 @@ impl TiledPanes {
                             .copied()
                             .filter(|pane_id| {
                                 stack_header.tabs.iter().any(|tab| tab.pane_id == *pane_id)
-                            })
-                            .or_else(|| Some(stack_header.expanded_pane_id));
+                            });
                         let stacked_pane_header_spec = stacked_pane_header_specs_by_client
                             .get(client_id)
                             .and_then(|specs_for_client| specs_for_client.get(&pane_id));

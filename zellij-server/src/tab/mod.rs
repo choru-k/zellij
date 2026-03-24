@@ -4751,32 +4751,17 @@ impl Tab {
         &mut self,
         stacked_pane_header_provider: Option<crate::panes::StackedPaneHeaderProvider>,
     ) {
-        let provider_plugin_id = stacked_pane_header_provider
-            .as_ref()
-            .and_then(|provider| self.find_plugin(&provider.plugin))
-            .and_then(|pane_id| match pane_id {
-                PaneId::Plugin(plugin_id) => Some(plugin_id),
-                _ => None,
-            });
         self.tiled_panes
             .update_stacked_pane_header_provider(stacked_pane_header_provider);
-        self.tiled_panes
-            .set_stacked_pane_header_provider_plugin_id(provider_plugin_id);
         self.set_should_clear_display_before_rendering();
         self.set_force_render();
     }
 
-    pub fn maybe_set_stacked_pane_header_provider_plugin_id(
-        &mut self,
-        run_plugin_or_alias: &RunPluginOrAlias,
-        plugin_id: u32,
-    ) {
+    pub fn set_stacked_pane_header_provider_plugin_id(&mut self, plugin_id: Option<u32>) {
         if self
             .tiled_panes
-            .matches_stacked_pane_header_provider(run_plugin_or_alias)
+            .set_stacked_pane_header_provider_plugin_id(plugin_id)
         {
-            self.tiled_panes
-                .set_stacked_pane_header_provider_plugin_id(Some(plugin_id));
             self.set_should_clear_display_before_rendering();
             self.set_force_render();
         }

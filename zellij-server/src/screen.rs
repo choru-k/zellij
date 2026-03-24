@@ -1214,6 +1214,7 @@ pub(crate) struct Screen {
     stacked_resize: Rc<RefCell<bool>>,
     stacked_pane_direction: StackedPaneDirection,
     stacked_pane_header_provider: Option<crate::panes::StackedPaneHeaderProvider>,
+    stacked_pane_header_provider_plugin_id: Option<u32>,
     sixel_image_store: Rc<RefCell<SixelImageStore>>,
     terminal_emulator_colors: Rc<RefCell<Palette>>,
     terminal_emulator_color_codes: Rc<RefCell<HashMap<usize, String>>>,
@@ -1324,6 +1325,7 @@ impl Screen {
             stacked_resize: Rc::new(RefCell::new(stacked_resize)),
             stacked_pane_direction,
             stacked_pane_header_provider,
+            stacked_pane_header_provider_plugin_id: None,
             sixel_image_store: Rc::new(RefCell::new(SixelImageStore::default())),
             style: client_attributes.style,
             connected_clients: Rc::new(RefCell::new(HashMap::new())),
@@ -2112,6 +2114,34 @@ impl Screen {
         &self.tabs
     }
 
+    fn matches_stacked_pane_header_provider(
+        &self,
+        run_plugin_or_alias: &RunPluginOrAlias,
+    ) -> bool {
+        self.stacked_pane_header_provider.as_ref().map_or(false, |provider| {
+            provider
+                .plugin
+                .is_equivalent_to_run(&Some(Run::Plugin(run_plugin_or_alias.clone())))
+        })
+    }
+
+    fn set_stacked_pane_header_provider_plugin_id(&mut self, plugin_id: Option<u32>) {
+        self.stacked_pane_header_provider_plugin_id = plugin_id;
+        for tab in self.tabs.values_mut() {
+            tab.set_stacked_pane_header_provider_plugin_id(plugin_id);
+        }
+    }
+
+    fn maybe_set_stacked_pane_header_provider_plugin_id(
+        &mut self,
+        run_plugin_or_alias: &RunPluginOrAlias,
+        plugin_id: u32,
+    ) {
+        if self.matches_stacked_pane_header_provider(run_plugin_or_alias) {
+            self.set_stacked_pane_header_provider_plugin_id(Some(plugin_id));
+        }
+    }
+
     /// Returns an immutable reference to this [`Screen`]'s active [`Tab`].
     pub fn get_active_tab(&self, client_id: ClientId) -> Result<&Tab> {
         match self.active_tab_ids.get(&client_id) {
@@ -2339,6 +2369,9 @@ impl Screen {
         );
         tab.update_stacked_pane_direction(self.stacked_pane_direction);
         tab.update_stacked_pane_header_provider(self.stacked_pane_header_provider.clone());
+        tab.set_stacked_pane_header_provider_plugin_id(
+            self.stacked_pane_header_provider_plugin_id,
+        );
         for (client_id, mode_info) in &self.mode_info {
             tab.change_mode_info(mode_info.clone(), *client_id);
         }
@@ -3842,8 +3875,13 @@ impl Screen {
         {
             *self.stacked_resize.borrow_mut() = stacked_resize;
         }
+        let stacked_pane_header_provider_changed =
+            self.stacked_pane_header_provider != stacked_pane_header_provider;
         self.stacked_pane_direction = stacked_pane_direction;
         self.stacked_pane_header_provider = stacked_pane_header_provider.clone();
+        if stacked_pane_header_provider_changed {
+            self.stacked_pane_header_provider_plugin_id = None;
+        }
         if let Some(copy_to_clipboard) = copy_to_clipboard {
             self.copy_options.clipboard = copy_to_clipboard;
         }
@@ -3857,6 +3895,9 @@ impl Screen {
             tab.set_pane_frames(pane_frames);
             tab.update_stacked_pane_direction(stacked_pane_direction);
             tab.update_stacked_pane_header_provider(stacked_pane_header_provider.clone());
+            tab.set_stacked_pane_header_provider_plugin_id(
+                self.stacked_pane_header_provider_plugin_id,
+            );
             tab.update_arrow_fonts(should_support_arrow_fonts);
             tab.update_advanced_mouse_actions(advanced_mouse_actions);
             tab.update_mouse_hover_effects(mouse_hover_effects);
@@ -7070,12 +7111,12 @@ pub(crate) fn screen_thread_main(
                             Some(client_id),
                             None,
                         )?;
-                        active_tab.maybe_set_stacked_pane_header_provider_plugin_id(
-                            &run_plugin_or_alias_for_provider,
-                            plugin_id,
-                        );
                         Ok::<(), anyhow::Error>(())
                     }, ?);
+                    screen.maybe_set_stacked_pane_header_provider_plugin_id(
+                        &run_plugin_or_alias_for_provider,
+                        plugin_id,
+                    );
                 } else if let Some(active_tab) =
                     tab_index.and_then(|tab_index| screen.tabs.get_mut(&tab_index))
                 {
@@ -7089,7 +7130,7 @@ pub(crate) fn screen_thread_main(
                         None,
                         None,
                     )?;
-                    active_tab.maybe_set_stacked_pane_header_provider_plugin_id(
+                    screen.maybe_set_stacked_pane_header_provider_plugin_id(
                         &run_plugin_or_alias_for_provider,
                         plugin_id,
                     );
