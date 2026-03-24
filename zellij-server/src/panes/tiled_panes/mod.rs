@@ -1612,10 +1612,13 @@ impl TiledPanes {
                             )
                             .with_context(err_context)?;
                         if let Some(stack_header) = stack_header {
-                            let selected_pane_id =
-                                active_panes.get(client_id).copied().filter(|pane_id| {
+                            let selected_pane_id = active_panes
+                                .get(client_id)
+                                .copied()
+                                .filter(|pane_id| {
                                     stack_header.tabs.iter().any(|tab| tab.pane_id == *pane_id)
-                                });
+                                })
+                                .or_else(|| Some(stack_header.expanded_pane_id));
                             let stacked_pane_header_spec = stacked_pane_header_specs_by_client
                                 .get(client_id)
                                 .and_then(|specs_for_client| specs_for_client.get(&pane_id));
@@ -1631,10 +1634,13 @@ impl TiledPanes {
                                 .with_context(err_context)?;
                         }
                     } else if let Some(stack_header) = stack_header {
-                        let selected_pane_id =
-                            active_panes.get(client_id).copied().filter(|pane_id| {
+                        let selected_pane_id = active_panes
+                            .get(client_id)
+                            .copied()
+                            .filter(|pane_id| {
                                 stack_header.tabs.iter().any(|tab| tab.pane_id == *pane_id)
-                            });
+                            })
+                            .or_else(|| Some(stack_header.expanded_pane_id));
                         let stacked_pane_header_spec = stacked_pane_header_specs_by_client
                             .get(client_id)
                             .and_then(|specs_for_client| specs_for_client.get(&pane_id));

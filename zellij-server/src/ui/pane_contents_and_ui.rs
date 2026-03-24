@@ -767,10 +767,7 @@ impl<'a> PaneContentsAndUi<'a> {
         }
 
         if is_selected {
-            if width == 1 {
-                return "…".to_owned();
-            }
-            let truncated_title = self.truncate_to_width(title, width.saturating_sub(2));
+            let truncated_title = truncate_text_to_width(title, width.saturating_sub(2));
             let wrapped_title = format!("[{}]", truncated_title);
             if wrapped_title.width() <= width {
                 wrapped_title
