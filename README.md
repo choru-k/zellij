@@ -100,9 +100,14 @@ brew install zellij-choru
 This formula intentionally uses a fork-specific formula name and should conflict with upstream `zellij`, because both install the same `zellij` executable.
 
 ### Build from source
-The most direct option is to build from this repository:
-```
+If you want to install the fork from source yourself, build it and then place the resulting binary somewhere on your `PATH`:
+```bash
 cargo xtask build
+cp ./target/debug/zellij ~/.local/bin/zellij
+```
+
+If you just want to try the fork without installing it system-wide, you can run the built binary directly:
+```bash
 ./target/debug/zellij
 ```
 
