@@ -7024,6 +7024,7 @@ pub(crate) fn screen_thread_main(
                         run_plugin_or_alias.location_string()
                     )
                 });
+                let run_plugin_or_alias_for_provider = run_plugin_or_alias.clone();
                 let run_plugin = Run::Plugin(run_plugin_or_alias);
 
                 // Set affected pane ID for CLI client output
@@ -7068,7 +7069,12 @@ pub(crate) fn screen_thread_main(
                             new_pane_placement,
                             Some(client_id),
                             None,
-                        )
+                        )?;
+                        active_tab.maybe_set_stacked_pane_header_provider_plugin_id(
+                            &run_plugin_or_alias_for_provider,
+                            plugin_id,
+                        );
+                        Ok::<(), anyhow::Error>(())
                     }, ?);
                 } else if let Some(active_tab) =
                     tab_index.and_then(|tab_index| screen.tabs.get_mut(&tab_index))
@@ -7083,6 +7089,10 @@ pub(crate) fn screen_thread_main(
                         None,
                         None,
                     )?;
+                    active_tab.maybe_set_stacked_pane_header_provider_plugin_id(
+                        &run_plugin_or_alias_for_provider,
+                        plugin_id,
+                    );
                 } else {
                     log::error!("Tab index not found: {:?}", tab_index);
                 }

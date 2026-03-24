@@ -2,12 +2,15 @@ use super::Tab;
 use crate::pane_groups::PaneGroups;
 use crate::panes::sixel::SixelImageStore;
 use crate::screen::CopyOptions;
-use crate::{os_input_output::ServerOsApi, panes::PaneId, thread_bus::ThreadSenders, ClientId};
+use crate::{
+    os_input_output::ServerOsApi, panes::PaneId, plugins::PluginInstruction,
+    thread_bus::ThreadSenders, ClientId,
+};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use zellij_utils::data::{Direction, NewPanePlacement, Resize, ResizeStrategy, WebSharing};
 use zellij_utils::errors::prelude::*;
-use zellij_utils::input::layout::{SplitDirection, SplitSize, TiledPaneLayout};
+use zellij_utils::input::layout::{Run, RunPluginOrAlias, SplitDirection, SplitSize, TiledPaneLayout};
 use zellij_utils::ipc::IpcReceiverWithContext;
 use zellij_utils::pane_size::{Size, SizeInPixels};
 
@@ -18,6 +21,7 @@ use std::rc::Rc;
 
 use interprocess::local_socket::Stream as LocalSocketStream;
 use zellij_utils::{
+    channels::{self, ChannelWithContext, SenderWithContext},
     data::{ModeInfo, Palette, Style},
     input::command::{RunCommand, TerminalAction},
     ipc::{ClientToServerMsg, ServerToClientMsg},
@@ -15586,4 +15590,56 @@ pub fn scroll_up_nonexistent_pane_id_does_not_panic() {
     let pane_id = PaneId::Terminal(999);
     assert!(!tab.has_pane_with_pid(&pane_id));
     tab.scroll_up_by_pane_id(pane_id);
+}
+
+#[test]
+pub fn stacked_pane_header_provider_tracks_suppressed_plugin_reloads() {
+    let size = Size {
+        cols: 121,
+        rows: 20,
+    };
+    let mut tab = create_new_tab(size, true);
+    let provider_plugin =
+        RunPluginOrAlias::from_url("file:///path/to/provider.wasm", &None, None, None).unwrap();
+    let provider = crate::panes::StackedPaneHeaderProvider {
+        plugin: provider_plugin.clone(),
+        timeout_ms: 16,
+    };
+
+    let (mock_plugin_sender, _mock_plugin_receiver): ChannelWithContext<PluginInstruction> =
+        channels::unbounded();
+    tab.senders
+        .replace_to_plugin(SenderWithContext::new(mock_plugin_sender));
+
+    tab.update_stacked_pane_header_provider(Some(provider));
+    assert!(!tab.accepts_stacked_pane_header_update(42));
+
+    tab.new_pane(
+        PaneId::Plugin(42),
+        Some("provider".to_owned()),
+        Some(Run::Plugin(provider_plugin.clone())),
+        true,
+        false,
+        NewPanePlacement::default(),
+        Some(1),
+        None,
+    )
+    .unwrap();
+    tab.maybe_set_stacked_pane_header_provider_plugin_id(&provider_plugin, 42);
+    assert!(tab.accepts_stacked_pane_header_update(42));
+
+    tab.new_pane(
+        PaneId::Plugin(43),
+        Some("provider".to_owned()),
+        Some(Run::Plugin(provider_plugin.clone())),
+        true,
+        false,
+        NewPanePlacement::default(),
+        Some(1),
+        None,
+    )
+    .unwrap();
+    tab.maybe_set_stacked_pane_header_provider_plugin_id(&provider_plugin, 43);
+    assert!(!tab.accepts_stacked_pane_header_update(42));
+    assert!(tab.accepts_stacked_pane_header_update(43));
 }

@@ -134,6 +134,7 @@ pub struct TiledPanes {
     tombstones_before_increase: Option<(PaneId, Vec<HashMap<PaneId, PaneGeom>>)>,
     tombstones_before_decrease: Option<(PaneId, Vec<HashMap<PaneId, PaneGeom>>)>,
     stacked_pane_header_provider: Option<StackedPaneHeaderProvider>,
+    stacked_pane_header_provider_plugin_id: Option<u32>,
     stacked_pane_header_specs: HashMap<StackedPaneHeaderKey, CachedStackedPaneHeaderSpec>,
     latest_stacked_pane_header_specs_by_stack:
         HashMap<(ClientId, usize, usize), CachedStackedPaneHeaderSpec>,
@@ -181,6 +182,7 @@ impl TiledPanes {
             tombstones_before_increase: None,
             tombstones_before_decrease: None,
             stacked_pane_header_provider: None,
+            stacked_pane_header_provider_plugin_id: None,
             stacked_pane_header_specs: HashMap::new(),
             latest_stacked_pane_header_specs_by_stack: HashMap::new(),
             requested_stacked_pane_header_contexts: HashMap::new(),
@@ -625,9 +627,25 @@ impl TiledPanes {
         stacked_pane_header_provider: Option<StackedPaneHeaderProvider>,
     ) {
         self.stacked_pane_header_provider = stacked_pane_header_provider;
+        self.stacked_pane_header_provider_plugin_id = None;
         self.stacked_pane_header_specs.clear();
         self.requested_stacked_pane_header_contexts.clear();
         self.latest_stacked_pane_header_specs_by_stack.clear();
+    }
+
+    pub fn matches_stacked_pane_header_provider(
+        &self,
+        run_plugin_or_alias: &RunPluginOrAlias,
+    ) -> bool {
+        self.stacked_pane_header_provider.as_ref().map_or(false, |provider| {
+            provider
+                .plugin
+                .is_equivalent_to_run(&Some(Run::Plugin(run_plugin_or_alias.clone())))
+        })
+    }
+
+    pub fn set_stacked_pane_header_provider_plugin_id(&mut self, plugin_id: Option<u32>) {
+        self.stacked_pane_header_provider_plugin_id = plugin_id;
     }
 
     pub fn update_stacked_pane_header(&mut self, update: StackedPaneHeaderUpdate) {
@@ -646,11 +664,7 @@ impl TiledPanes {
     }
 
     fn stacked_pane_header_provider_plugin_id(&self) -> Option<u32> {
-        let provider = self.stacked_pane_header_provider.as_ref()?;
-        match self.get_plugin_pane_id(&provider.plugin) {
-            Some(PaneId::Plugin(plugin_id)) => Some(plugin_id),
-            _ => None,
-        }
+        self.stacked_pane_header_provider_plugin_id
     }
 
     pub fn accepts_stacked_pane_header_update(&self, source_plugin_id: u32) -> bool {
