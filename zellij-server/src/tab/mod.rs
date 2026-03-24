@@ -4766,6 +4766,11 @@ impl Tab {
         self.set_force_render();
     }
 
+    pub fn accepts_stacked_pane_header_update(&self, source_plugin_id: u32) -> bool {
+        self.tiled_panes
+            .accepts_stacked_pane_header_update(source_plugin_id)
+    }
+
 
     pub fn panes_to_hide_count(&self) -> usize {
         self.tiled_panes.panes_to_hide_count()

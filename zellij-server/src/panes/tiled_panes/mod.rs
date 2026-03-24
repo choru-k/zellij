@@ -107,7 +107,6 @@ struct RequestedStackedPaneHeaderContext {
 #[derive(Clone, Debug)]
 struct CachedStackedPaneHeaderSpec {
     spec: StackedPaneHeaderSpec,
-    updated_at: Instant,
 }
 
 
@@ -136,6 +135,8 @@ pub struct TiledPanes {
     tombstones_before_decrease: Option<(PaneId, Vec<HashMap<PaneId, PaneGeom>>)>,
     stacked_pane_header_provider: Option<StackedPaneHeaderProvider>,
     stacked_pane_header_specs: HashMap<StackedPaneHeaderKey, CachedStackedPaneHeaderSpec>,
+    latest_stacked_pane_header_specs_by_stack:
+        HashMap<(ClientId, usize, usize), CachedStackedPaneHeaderSpec>,
     requested_stacked_pane_header_contexts:
         HashMap<(ClientId, usize, usize), RequestedStackedPaneHeaderContext>,
 }
@@ -181,6 +182,7 @@ impl TiledPanes {
             tombstones_before_decrease: None,
             stacked_pane_header_provider: None,
             stacked_pane_header_specs: HashMap::new(),
+            latest_stacked_pane_header_specs_by_stack: HashMap::new(),
             requested_stacked_pane_header_contexts: HashMap::new(),
         }
     }
@@ -625,18 +627,21 @@ impl TiledPanes {
         self.stacked_pane_header_provider = stacked_pane_header_provider;
         self.stacked_pane_header_specs.clear();
         self.requested_stacked_pane_header_contexts.clear();
+        self.latest_stacked_pane_header_specs_by_stack.clear();
     }
 
     pub fn update_stacked_pane_header(&mut self, update: StackedPaneHeaderUpdate) {
         if self.stacked_pane_header_provider.is_none() {
             return;
         }
-        self.stacked_pane_header_specs.insert(
-            update.key,
-            CachedStackedPaneHeaderSpec {
-                spec: update.spec,
-                updated_at: Instant::now(),
-            },
+        let cached = CachedStackedPaneHeaderSpec {
+            spec: update.spec,
+        };
+        self.stacked_pane_header_specs
+            .insert(update.key.clone(), cached.clone());
+        self.latest_stacked_pane_header_specs_by_stack.insert(
+            (update.key.client_id, update.key.tab_id, update.key.stack_id),
+            cached,
         );
     }
 
@@ -646,6 +651,10 @@ impl TiledPanes {
             Some(PaneId::Plugin(plugin_id)) => Some(plugin_id),
             _ => None,
         }
+    }
+
+    pub fn accepts_stacked_pane_header_update(&self, source_plugin_id: u32) -> bool {
+        self.stacked_pane_header_provider_plugin_id() == Some(source_plugin_id)
     }
 
     fn stacked_pane_header_context_for_client(
@@ -739,13 +748,8 @@ impl TiledPanes {
         tab_id: usize,
         stack_id: usize,
     ) -> Option<&CachedStackedPaneHeaderSpec> {
-        self.stacked_pane_header_specs
-            .iter()
-            .filter(|(key, _)| {
-                key.client_id == client_id && key.tab_id == tab_id && key.stack_id == stack_id
-            })
-            .max_by_key(|(_, cached)| cached.updated_at)
-            .map(|(_, cached)| cached)
+        self.latest_stacked_pane_header_specs_by_stack
+            .get(&(client_id, tab_id, stack_id))
     }
 
     fn stacked_pane_header_spec_for_client(
@@ -1407,14 +1411,8 @@ impl TiledPanes {
                             if let Some(pane_id) = segment.pane_id {
                                 return Some(pane_id);
                             }
-                            if let Some(action) = &segment.action {
-                                return match action {
-                                    zellij_utils::data::StackedPaneHeaderAction::FocusPane(pane_id)
-                                    | zellij_utils::data::StackedPaneHeaderAction::ClosePane(pane_id)
-                                    | zellij_utils::data::StackedPaneHeaderAction::ExpandPane(
-                                        pane_id,
-                                    ) => Some((*pane_id).into()),
-                                };
+                            if segment.action.is_some() {
+                                return None;
                             }
                         }
                         return stacked_pane_header.expanded_pane_id();

@@ -791,44 +791,50 @@ impl TryFrom<crate::client_server_contract::client_server_contract::Options>
             stacked_pane_direction: options
                 .stacked_pane_direction
                 .map(|direction| match ProtoStackDirection::from_i32(direction) {
-                    Some(ProtoStackDirection::Horizontal) => {
-                        Ok(crate::input::options::StackedPaneDirection::Horizontal)
-                    },
-                    Some(ProtoStackDirection::Vertical) => {
-                        Ok(crate::input::options::StackedPaneDirection::Vertical)
-                    },
+                    Some(ProtoStackDirection::Unspecified) => Ok(None),
+                    Some(ProtoStackDirection::Horizontal) => Ok(Some(
+                        crate::input::options::StackedPaneDirection::Horizontal,
+                    )),
+                    Some(ProtoStackDirection::Vertical) => Ok(Some(
+                        crate::input::options::StackedPaneDirection::Vertical,
+                    )),
                     _ => Err(anyhow!("Invalid StackDirection value: {}", direction)),
                 })
-                .transpose()?,
+                .transpose()?
+                .flatten(),
             stacked_pane_header: match options.stacked_pane_header {
                 Some(stacked_pane_header) => Some(crate::input::options::StackedPaneHeaderConfig {
                     source: stacked_pane_header
                         .source
                         .map(|source| match ProtoStackedPaneHeaderSource::from_i32(source) {
-                            Some(ProtoStackedPaneHeaderSource::Builtin) => {
-                                Ok(crate::input::options::StackedPaneHeaderSource::Builtin)
-                            },
-                            Some(ProtoStackedPaneHeaderSource::Plugin) => {
-                                Ok(crate::input::options::StackedPaneHeaderSource::Plugin)
-                            },
+                            Some(ProtoStackedPaneHeaderSource::Unspecified) => Ok(None),
+                            Some(ProtoStackedPaneHeaderSource::Builtin) => Ok(Some(
+                                crate::input::options::StackedPaneHeaderSource::Builtin,
+                            )),
+                            Some(ProtoStackedPaneHeaderSource::Plugin) => Ok(Some(
+                                crate::input::options::StackedPaneHeaderSource::Plugin,
+                            )),
                             _ => Err(anyhow!("Invalid StackedPaneHeaderSource value: {}", source)),
                         })
-                        .transpose()?,
+                        .transpose()?
+                        .flatten(),
                     plugin: stacked_pane_header.plugin,
                     fallback: stacked_pane_header
                         .fallback
                         .map(
                             |fallback| match ProtoStackedPaneHeaderFallback::from_i32(fallback) {
-                                Some(ProtoStackedPaneHeaderFallback::Builtin) => {
-                                    Ok(crate::input::options::StackedPaneHeaderFallback::Builtin)
-                                },
+                                Some(ProtoStackedPaneHeaderFallback::Unspecified) => Ok(None),
+                                Some(ProtoStackedPaneHeaderFallback::Builtin) => Ok(Some(
+                                    crate::input::options::StackedPaneHeaderFallback::Builtin,
+                                )),
                                 _ => Err(anyhow!(
                                     "Invalid StackedPaneHeaderFallback value: {}",
                                     fallback
                                 )),
                             },
                         )
-                        .transpose()?,
+                        .transpose()?
+                        .flatten(),
                     timeout_ms: stacked_pane_header.timeout_ms,
                 }),
                 None => None,

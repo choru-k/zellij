@@ -3519,3 +3519,35 @@ fn set_pane_color_wire_roundtrip() {
 
     assert_eq!(original, roundtrip);
 }
+
+
+#[test]
+fn options_decode_unspecified_stacked_header_enums_as_none() {
+    use crate::client_server_contract::client_server_contract::{
+        Options as ProtobufOptions, StackDirection, StackedPaneHeaderConfig as ProtobufStackedPaneHeaderConfig,
+        StackedPaneHeaderFallback, StackedPaneHeaderSource,
+    };
+
+    let decoded = Options::try_from(ProtobufOptions {
+        stacked_pane_direction: Some(StackDirection::Unspecified as i32),
+        stacked_pane_header: Some(ProtobufStackedPaneHeaderConfig {
+            source: Some(StackedPaneHeaderSource::Unspecified as i32),
+            plugin: Some("file:/tmp/header.wasm".to_owned()),
+            fallback: Some(StackedPaneHeaderFallback::Unspecified as i32),
+            timeout_ms: Some(16),
+        }),
+        ..Default::default()
+    })
+    .expect("options should decode");
+
+    assert_eq!(decoded.stacked_pane_direction, None);
+    assert_eq!(
+        decoded.stacked_pane_header,
+        Some(StackedPaneHeaderConfig {
+            source: None,
+            plugin: Some("file:/tmp/header.wasm".to_owned()),
+            fallback: None,
+            timeout_ms: Some(16),
+        })
+    );
+}

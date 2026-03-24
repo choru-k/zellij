@@ -3930,11 +3930,8 @@ impl Options {
     }
 
     fn stacked_pane_header_to_kdl(&self, add_comments: bool) -> Option<KdlNode> {
-        match &self.stacked_pane_header {
-            Some(stacked_pane_header) => Some(stacked_pane_header.to_kdl_node(add_comments)),
-            None if add_comments => Some(StackedPaneHeaderConfig::default().to_kdl_node(true)),
-            None => None,
-        }
+        let stacked_pane_header = self.stacked_pane_header.as_ref()?;
+        Some(stacked_pane_header.to_kdl_node(add_comments))
     }
 
 
@@ -4501,12 +4498,7 @@ impl StackedPaneHeaderConfig {
         let mut node = KdlNode::new("stacked_pane_header");
         let mut children = KdlDocument::new();
 
-        let source = self.source.or(if add_comments {
-            Some(StackedPaneHeaderSource::Builtin)
-        } else {
-            None
-        });
-        if let Some(source) = source {
+        if let Some(source) = self.source {
             let mut source_node = KdlNode::new("source");
             source_node.push(match source {
                 StackedPaneHeaderSource::Builtin => "builtin",
@@ -4521,12 +4513,7 @@ impl StackedPaneHeaderConfig {
             children.nodes_mut().push(plugin_node);
         }
 
-        let fallback = self.fallback.or(if add_comments {
-            Some(StackedPaneHeaderFallback::Builtin)
-        } else {
-            None
-        });
-        if let Some(fallback) = fallback {
+        if let Some(fallback) = self.fallback {
             let mut fallback_node = KdlNode::new("fallback");
             fallback_node.push(match fallback {
                 StackedPaneHeaderFallback::Builtin => "builtin",
@@ -4534,8 +4521,7 @@ impl StackedPaneHeaderConfig {
             children.nodes_mut().push(fallback_node);
         }
 
-        let timeout_ms = self.timeout_ms.or(if add_comments { Some(16) } else { None });
-        if let Some(timeout_ms) = timeout_ms {
+        if let Some(timeout_ms) = self.timeout_ms {
             let mut timeout_node = KdlNode::new("timeout_ms");
             timeout_node.push(timeout_ms as i64);
             children.nodes_mut().push(timeout_node);

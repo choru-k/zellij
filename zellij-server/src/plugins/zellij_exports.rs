@@ -889,11 +889,10 @@ fn set_stacked_pane_header(
     env: &PluginEnv,
     stacked_pane_header: zellij_utils::data::StackedPaneHeaderUpdate,
 ) {
-    let _ = env
-        .senders
-        .send_to_screen(ScreenInstruction::UpdateStackedPaneHeader(
-            stacked_pane_header,
-        ));
+    let _ = env.senders.send_to_screen(ScreenInstruction::UpdateStackedPaneHeader {
+        source_plugin_id: env.plugin_id,
+        stacked_pane_header,
+    });
 }
 
 fn request_permission(env: &PluginEnv, permissions: Vec<PermissionType>) -> Result<()> {

@@ -519,6 +519,12 @@ web_client {
 // 
 // stacked_resize false
  
+// How to display stacked panes
+// Possible values: "vertical" or "horizontal"
+// Default: "vertical"
+// 
+// stacked_pane_direction "vertical"
+ 
 // Whether to show tips on startup
 // Default: true
 // 

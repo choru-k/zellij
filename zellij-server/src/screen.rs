@@ -609,7 +609,10 @@ pub enum ScreenInstruction {
         focus_follows_mouse: bool,
         mouse_click_through: bool,
     },
-    UpdateStackedPaneHeader(zellij_utils::data::StackedPaneHeaderUpdate),
+    UpdateStackedPaneHeader {
+        source_plugin_id: u32,
+        stacked_pane_header: zellij_utils::data::StackedPaneHeaderUpdate,
+    },
     RerunCommandPane(u32, Option<NotificationEnd>), // u32 - terminal pane id
     ResizePaneWithId(ResizeStrategy, PaneId),
     EditScrollbackForPaneWithId(PaneId, Option<NotificationEnd>),
@@ -926,7 +929,7 @@ impl From<&ScreenInstruction> for ScreenContext {
             ScreenInstruction::ListTabs { .. } => ScreenContext::ListTabs,
             ScreenInstruction::GetCurrentTabInfo { .. } => ScreenContext::GetCurrentTabInfo,
             ScreenInstruction::Reconfigure { .. } => ScreenContext::Reconfigure,
-            ScreenInstruction::UpdateStackedPaneHeader(..) => {
+            ScreenInstruction::UpdateStackedPaneHeader { .. } => {
                 ScreenContext::UpdateStackedPaneHeader
             },
             ScreenInstruction::RerunCommandPane { .. } => ScreenContext::RerunCommandPane,
@@ -7738,10 +7741,15 @@ pub(crate) fn screen_thread_main(
                     )
                     .non_fatal();
             },
-            ScreenInstruction::UpdateStackedPaneHeader(stacked_pane_header) => {
+            ScreenInstruction::UpdateStackedPaneHeader {
+                source_plugin_id,
+                stacked_pane_header,
+            } => {
                 if let Some(tab) = screen.get_tab_by_id_mut(stacked_pane_header.key.tab_id) {
-                    tab.update_stacked_pane_header(stacked_pane_header);
-                    screen.render(None).non_fatal();
+                    if tab.accepts_stacked_pane_header_update(source_plugin_id) {
+                        tab.update_stacked_pane_header(stacked_pane_header);
+                        screen.render(None).non_fatal();
+                    }
                 }
             },
             ScreenInstruction::RerunCommandPane(terminal_pane_id, completion_tx) => {
