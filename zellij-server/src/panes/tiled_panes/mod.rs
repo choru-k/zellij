@@ -1492,6 +1492,16 @@ impl TiledPanes {
         };
         let selectable_pane_count = self.panes.iter().filter(|(_, p)| p.selectable()).count();
         for (kind, pane) in self.panes.iter_mut() {
+            let pane_id = pane.pid();
+            let pane_is_hidden = self.panes_to_hide.contains(&pane_id);
+            let stack_header = if !pane_is_hidden && pane.current_geom().is_stacked() {
+                stacked_pane_headers.get(&pane_id)
+            } else {
+                None
+            };
+            if let Some(stack_header) = stack_header {
+                pane.set_geom_override(stack_header.full_stack_geom);
+            }
             match kind {
                 PaneId::Terminal(_) => {
                     output.add_pane_contents(
@@ -1525,8 +1535,7 @@ impl TiledPanes {
                 },
             }
 
-            if !self.panes_to_hide.contains(&pane.pid()) {
-                let pane_id = pane.pid();
+            if !pane_is_hidden {
                 let pane_is_stacked_under =
                     stacked_pane_ids_under_flexible_pane.contains(&pane.pid());
                 let pane_is_stacked_over =
@@ -1536,14 +1545,6 @@ impl TiledPanes {
                 let pane_is_on_bottom_of_stack =
                     stacked_pane_ids_on_bottom_of_stacks.contains(&pane.pid());
                 let should_draw_pane_frames = self.draw_pane_frames;
-                let stack_header = if pane.current_geom().is_stacked() {
-                    stacked_pane_headers.get(&pane.pid())
-                } else {
-                    None
-                };
-                if let Some(stack_header) = stack_header {
-                    pane.set_geom_override(stack_header.full_stack_geom);
-                }
                 let pane_is_stacked = pane.current_geom().is_stacked();
                 let pane_is_one_liner_in_stack = pane_is_stacked && stack_header.is_none();
                 let pane_is_selectable = pane.selectable();
