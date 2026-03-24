@@ -32,7 +32,7 @@ use zellij_utils::{
     shared::make_terminal_title,
 };
 
-use crate::ui::pane_boundaries_frame::{FrameParams, PaneFrame};
+use crate::ui::pane_boundaries_frame::{FrameParams, PaneBorderStyle, PaneFrame};
 
 pub const SELECTION_SCROLL_INTERVAL_MS: u64 = 10;
 
@@ -147,7 +147,8 @@ pub struct TerminalPane {
     // possible user instruction to be re-run, or that the command has not yet been run
     banner: Option<String>, // a banner to be rendered inside this TerminalPane, used for panes
     // held on startup and can possibly be used to display some errors
-    pane_frame_color_override: Option<(PaletteColor, Option<String>)>,
+    pane_frame_style: Option<PaneBorderStyle>,
+    pane_frame_style_override: Option<(PaneBorderStyle, Option<String>)>,
     has_bell_notification: bool,
     invoked_with: Option<Run>,
     #[allow(dead_code)]
@@ -394,9 +395,9 @@ impl Pane for TerminalPane {
             self.pane_name.clone()
         };
         let pane_title = if let Some(text_color_override) = self
-            .pane_frame_color_override
+            .pane_frame_style_override
             .as_ref()
-            .and_then(|(_color, text)| text.as_ref())
+            .and_then(|(_style, text)| text.as_ref())
         {
             text_color_override.into()
         } else if self.has_bell_notification {
@@ -421,8 +422,8 @@ impl Pane for TerminalPane {
                 frame.add_exit_status(exit_status.as_ref().copied());
             }
         }
-        if let Some((frame_color_override, _text)) = self.pane_frame_color_override.as_ref() {
-            frame.override_color(*frame_color_override);
+        if let Some((frame_style_override, _text)) = self.pane_frame_style_override.as_ref() {
+            frame.override_style(*frame_style_override);
         }
 
         let res = match self.frame.get(&client_id) {
@@ -797,25 +798,38 @@ impl Pane for TerminalPane {
     fn get_bell_notification(&self) -> bool {
         self.has_bell_notification
     }
-    fn add_red_pane_frame_color_override(&mut self, error_text: Option<String>) {
-        self.pane_frame_color_override = Some((self.style.colors.exit_code_error.base, error_text));
+    fn set_pane_frame_style(&mut self, border_style: Option<PaneBorderStyle>) {
+        self.pane_frame_style = border_style;
+        self.set_should_render(true);
     }
-    fn add_highlight_pane_frame_color_override(
+    fn add_red_pane_frame_style_override(&mut self, error_text: Option<String>) {
+        self.pane_frame_style_override = Some((
+            PaneBorderStyle::foreground(self.style.colors.exit_code_error.base),
+            error_text,
+        ));
+    }
+    fn add_highlight_pane_frame_style_override(
         &mut self,
         text: Option<String>,
         _client_id: Option<ClientId>,
     ) {
         // TODO: if we have a client_id, we should only highlight the frame for this client
-        self.pane_frame_color_override = Some((self.style.colors.frame_highlight.emphasis_0, text));
+        self.pane_frame_style_override = Some((
+            PaneBorderStyle::foreground(self.style.colors.frame_highlight.emphasis_0),
+            text,
+        ));
     }
-    fn clear_pane_frame_color_override(&mut self, _client_id: Option<ClientId>) {
+    fn clear_pane_frame_style_override(&mut self, _client_id: Option<ClientId>) {
         // TODO: if we have a client_id, we should only clear the highlight for this client
-        self.pane_frame_color_override = None;
+        self.pane_frame_style_override = None;
     }
-    fn frame_color_override(&self) -> Option<PaletteColor> {
-        self.pane_frame_color_override
+    fn frame_style_override(&self) -> Option<PaneBorderStyle> {
+        self.pane_frame_style_override
             .as_ref()
-            .map(|(color, _text)| *color)
+            .map(|(style, _text)| *style)
+    }
+    fn frame_style(&self) -> Option<PaneBorderStyle> {
+        self.pane_frame_style
     }
     fn invoked_with(&self) -> &Option<Run> {
         &self.invoked_with
@@ -1072,7 +1086,8 @@ impl TerminalPane {
             search_term: String::new(),
             is_held: None,
             banner: None,
-            pane_frame_color_override: None,
+            pane_frame_style: None,
+            pane_frame_style_override: None,
             has_bell_notification: false,
             invoked_with,
             arrow_fonts,

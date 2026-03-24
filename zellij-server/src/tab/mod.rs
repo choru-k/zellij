@@ -15,8 +15,8 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use zellij_utils::data::PaneContents;
 use zellij_utils::data::{
-    Direction, KeyWithModifier, NewPanePlacement, PaneInfo, PermissionStatus, PermissionType,
-    PluginPermission, RegexHighlight, ResizeStrategy, Style, WebSharing,
+    Direction, KeyWithModifier, NewPanePlacement, PaletteColor, PaneInfo, PermissionStatus,
+    PermissionType, PluginPermission, RegexHighlight, ResizeStrategy, Style, WebSharing,
 };
 use zellij_utils::errors::prelude::*;
 use zellij_utils::input::command::RunCommand;
@@ -29,7 +29,10 @@ use crate::background_jobs::BackgroundJob;
 use crate::pane_groups::PaneGroups;
 use crate::pty_writer::PtyWriteInstruction;
 use crate::screen::{CopyOptions, ScreenInstruction};
-use crate::ui::{loading_indication::LoadingIndication, pane_boundaries_frame::FrameParams};
+use crate::ui::{
+    loading_indication::LoadingIndication,
+    pane_boundaries_frame::{FrameParams, PaneBorderStyle},
+};
 use layout_applier::LayoutApplier;
 use swap_layouts::SwapLayouts;
 
@@ -38,10 +41,10 @@ use crate::route::NotificationEnd;
 use crate::{
     os_input_output::ServerOsApi,
     output::{CharacterChunk, Output, SixelImageChunk},
+    panes::alacritty_functions::xparse_palette_color,
     panes::floating_panes::floating_pane_grid::half_size_middle_geom,
     panes::sixel::SixelImageStore,
-    panes::{FloatingPanes, TiledPanes},
-    panes::{LinkHandler, PaneId, PluginPane, TerminalPane},
+    panes::{FloatingPanes, LinkHandler, PaneId, PluginPane, TerminalPane, TiledPanes},
     plugins::PluginInstruction,
     pty::{ClientTabIndexOrPaneId, PtyInstruction, VteBytes},
     thread_bus::ThreadSenders,
@@ -55,7 +58,7 @@ use std::{
     str,
 };
 use zellij_utils::{
-    data::{Event, FloatingPaneCoordinates, InputMode, ModeInfo, Palette, PaletteColor, Styling},
+    data::{Event, FloatingPaneCoordinates, InputMode, ModeInfo, Palette, Styling},
     input::{
         command::TerminalAction,
         layout::{
@@ -66,6 +69,19 @@ use zellij_utils::{
     },
     pane_size::{Offset, PaneGeom, Size, SizeInPixels, Viewport},
 };
+
+fn parse_pane_border_style_color(
+    color: Option<String>,
+    color_name: &str,
+ ) -> Result<Option<PaletteColor>> {
+    color
+        .map(|color| {
+            xparse_palette_color(&color)
+                .ok_or_else(|| anyhow!("Failed to parse pane border {color_name}: {color}"))
+        })
+        .transpose()
+}
+
 
 #[macro_export]
 macro_rules! resize_pty {
@@ -328,6 +344,7 @@ pub trait Pane {
     fn get_pane_default_colors(&self) -> (Option<String>, Option<String>) {
         (None, None)
     }
+    fn set_pane_frame_style(&mut self, _border_style: Option<PaneBorderStyle>) {}
 
     fn right_boundary_x_coords(&self) -> usize {
         self.x() + self.cols()
@@ -557,15 +574,18 @@ pub trait Pane {
     fn get_bell_notification(&self) -> bool {
         false
     }
-    fn add_red_pane_frame_color_override(&mut self, _error_text: Option<String>);
-    fn add_highlight_pane_frame_color_override(
+    fn add_red_pane_frame_style_override(&mut self, _error_text: Option<String>);
+    fn add_highlight_pane_frame_style_override(
         &mut self,
         _text: Option<String>,
         _client_id: Option<ClientId>,
     ) {
     }
-    fn clear_pane_frame_color_override(&mut self, _client_id: Option<ClientId>);
-    fn frame_color_override(&self) -> Option<PaletteColor>;
+    fn clear_pane_frame_style_override(&mut self, _client_id: Option<ClientId>);
+    fn frame_style_override(&self) -> Option<PaneBorderStyle>;
+    fn frame_style(&self) -> Option<PaneBorderStyle> {
+        None
+    }
     fn invoked_with(&self) -> &Option<Run>;
     fn set_title(&mut self, title: String);
     fn set_ignore_pane_synchronized_output(&mut self, _should_ignore: bool) {}
@@ -2541,7 +2561,7 @@ impl Tab {
         self.panes_with_pending_bell.remove(&pane_id);
         if let Some(pane) = self.get_pane_with_id_mut(pane_id) {
             pane.set_bell_notification(false);
-            pane.clear_pane_frame_color_override(None);
+            pane.clear_pane_frame_style_override(None);
         }
         self.tab_has_pending_bell = false;
     }
@@ -2601,6 +2621,31 @@ impl Tab {
             .or_else(|| self.suppressed_panes.get_mut(&pane_id).map(|p| &mut p.1));
         if let Some(pane) = pane {
             pane.set_pane_default_colors(fg, bg);
+        }
+        Ok(())
+    }
+    pub fn set_pane_border_style(
+        &mut self,
+        pane_id: PaneId,
+        fg: Option<String>,
+        bg: Option<String>,
+    ) -> Result<()> {
+        let pane = self
+            .floating_panes
+            .get_mut(&pane_id)
+            .or_else(|| self.tiled_panes.get_pane_mut(pane_id))
+            .or_else(|| self.suppressed_panes.get_mut(&pane_id).map(|p| &mut p.1));
+        if let Some(pane) = pane {
+            let border_style = PaneBorderStyle {
+                fg: parse_pane_border_style_color(fg, "foreground color")?,
+                bg: parse_pane_border_style_color(bg, "background color")?,
+            };
+            let border_style = if border_style.is_empty() {
+                None
+            } else {
+                Some(border_style)
+            };
+            pane.set_pane_frame_style(border_style);
         }
         Ok(())
     }
@@ -4807,7 +4852,7 @@ impl Tab {
         self.is_pending
     }
 
-    pub fn add_red_pane_frame_color_override(
+    pub fn add_red_pane_frame_style_override(
         &mut self,
         pane_id: PaneId,
         error_text: Option<String>,
@@ -4823,10 +4868,10 @@ impl Tab {
                     .map(|s_p| &mut s_p.1)
             })
         {
-            pane.add_red_pane_frame_color_override(error_text);
+            pane.add_red_pane_frame_style_override(error_text);
         }
     }
-    pub fn add_highlight_pane_frame_color_override(
+    pub fn add_highlight_pane_frame_style_override(
         &mut self,
         pane_id: PaneId,
         error_text: Option<String>,
@@ -4843,10 +4888,10 @@ impl Tab {
                     .map(|s_p| &mut s_p.1)
             })
         {
-            pane.add_highlight_pane_frame_color_override(error_text, client_id);
+            pane.add_highlight_pane_frame_style_override(error_text, client_id);
         }
     }
-    pub fn clear_pane_frame_color_override(
+    pub fn clear_pane_frame_style_override(
         &mut self,
         pane_id: PaneId,
         client_id: Option<ClientId>,
@@ -4862,7 +4907,7 @@ impl Tab {
                     .map(|s_p| &mut s_p.1)
             })
         {
-            pane.clear_pane_frame_color_override(client_id);
+            pane.clear_pane_frame_style_override(client_id);
         }
     }
     pub fn set_plugin_regex_highlights_for_pane(

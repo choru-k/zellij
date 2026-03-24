@@ -1,6 +1,8 @@
+use crate::input::actions::Action;
 use crate::ipc::{
     ClientToServerMsg, IpcReceiverWithContext, IpcSenderWithContext, ServerToClientMsg,
 };
+use crate::data::PaneId;
 use crate::pane_size::Size;
 use interprocess::local_socket::{prelude::*, ListenerOptions};
 
@@ -119,6 +121,56 @@ fn client_to_server_message_over_socket() {
         matches!(msg, ClientToServerMsg::ConnStatus),
         "should be ConnStatus, got: {:?}",
         msg
+    );
+
+    client.join().expect("client thread panicked");
+}
+
+#[test]
+fn set_pane_border_style_client_message_over_socket() {
+    let (_guard, name) = new_ipc();
+    let listener = bind_listener(&name);
+
+    let client = std::thread::spawn({
+        let name = name.clone();
+        move || {
+            let stream = connect_stream(&name);
+            let mut sender: IpcSenderWithContext<ClientToServerMsg> =
+                IpcSenderWithContext::new(stream);
+            sender
+                .send_client_msg(ClientToServerMsg::Action {
+                    action: Action::SetPaneBorderStyle {
+                        pane_id: PaneId::Terminal(1),
+                        fg: None,
+                        bg: Some("#ff00ff".to_owned()),
+                    },
+                    terminal_id: Some(38),
+                    client_id: Some(100),
+                    is_cli_client: true,
+                })
+                .expect("send failed");
+        }
+    });
+
+    let stream = listener.incoming().next().unwrap().expect("accept failed");
+    let mut receiver: IpcReceiverWithContext<ClientToServerMsg> =
+        IpcReceiverWithContext::new(stream);
+
+    let msg = receiver.recv_client_msg();
+    assert!(msg.is_some(), "should receive a message");
+    let (msg, _ctx) = msg.unwrap();
+    assert_eq!(
+        msg,
+        ClientToServerMsg::Action {
+            action: Action::SetPaneBorderStyle {
+                pane_id: PaneId::Terminal(1),
+                fg: None,
+                bg: Some("#ff00ff".to_owned()),
+            },
+            terminal_id: Some(38),
+            client_id: Some(100),
+            is_cli_client: true,
+        }
     );
 
     client.join().expect("client thread panicked");

@@ -664,6 +664,7 @@ pub enum ScreenInstruction {
     ),
     TogglePaneBorderless(PaneId, Option<NotificationEnd>),
     SetPaneBorderless(PaneId, bool, Option<NotificationEnd>),
+    SetPaneBorderStyle(PaneId, Option<String>, Option<String>, Option<NotificationEnd>),
     AddHighlightPaneFrameColorOverride(Vec<PaneId>, Option<String>), // Option<String> => optional
     // message
     GroupAndUngroupPanes(Vec<PaneId>, Vec<PaneId>, bool, ClientId), // panes_to_group, panes_to_ungroup, bool -> for all clients
@@ -935,6 +936,7 @@ impl From<&ScreenInstruction> for ScreenContext {
             ScreenInstruction::WriteToPaneId(..) => ScreenContext::WriteToPaneId,
             ScreenInstruction::Paste(..) => ScreenContext::Paste,
             ScreenInstruction::SetPaneColor(..) => ScreenContext::SetPaneColor,
+            ScreenInstruction::SetPaneBorderStyle(..) => ScreenContext::SetPaneBorderStyle,
             ScreenInstruction::WriteKeyToPaneId(..) => ScreenContext::WriteKeyToPaneId,
             ScreenInstruction::CopyTextToClipboard(..) => ScreenContext::CopyTextToClipboard,
             ScreenInstruction::MovePaneWithPaneId(..) => ScreenContext::MovePaneWithPaneId,
@@ -6525,7 +6527,7 @@ pub(crate) fn screen_thread_main(
                 for pane_id in pane_ids {
                     for tab in all_tabs.values_mut() {
                         if tab.has_pane_with_pid(&pane_id) {
-                            tab.add_red_pane_frame_color_override(pane_id, error_text.clone());
+                            tab.add_red_pane_frame_style_override(pane_id, error_text.clone());
                             break;
                         }
                     }
@@ -6537,7 +6539,7 @@ pub(crate) fn screen_thread_main(
                 for pane_id in pane_ids {
                     for tab in all_tabs.values_mut() {
                         if tab.has_pane_with_pid(&pane_id) {
-                            tab.add_highlight_pane_frame_color_override(
+                            tab.add_highlight_pane_frame_style_override(
                                 pane_id,
                                 error_text.clone(),
                                 None,
@@ -6553,7 +6555,7 @@ pub(crate) fn screen_thread_main(
                 for pane_id in pane_ids {
                     for tab in all_tabs.values_mut() {
                         if tab.has_pane_with_pid(&pane_id) {
-                            tab.clear_pane_frame_color_override(pane_id, None);
+                            tab.clear_pane_frame_style_override(pane_id, None);
                             break;
                         }
                     }
@@ -7788,6 +7790,16 @@ pub(crate) fn screen_thread_main(
                 }
                 screen.render(None)?;
             },
+            ScreenInstruction::SetPaneBorderStyle(pane_id, fg, bg, _completion) => {
+                let all_tabs = screen.get_tabs_mut();
+                for tab in all_tabs.values_mut() {
+                    if tab.has_pane_with_pid(&pane_id) {
+                        tab.set_pane_border_style(pane_id, fg, bg).non_fatal();
+                        break;
+                    }
+                }
+                screen.render(None)?;
+            },
             ScreenInstruction::WriteKeyToPaneId(
                 key_with_modifier,
                 bytes,
@@ -8160,7 +8172,7 @@ pub(crate) fn screen_thread_main(
                     for pane_id in pane_ids_to_highlight {
                         for tab in all_tabs.values_mut() {
                             if tab.has_pane_with_pid(&pane_id) {
-                                tab.add_highlight_pane_frame_color_override(
+                                tab.add_highlight_pane_frame_style_override(
                                     pane_id,
                                     None,
                                     Some(client_id),
@@ -8171,7 +8183,7 @@ pub(crate) fn screen_thread_main(
                     for pane_id in pane_ids_to_unhighlight {
                         for tab in all_tabs.values_mut() {
                             if tab.has_pane_with_pid(&pane_id) {
-                                tab.clear_pane_frame_color_override(pane_id, Some(client_id));
+                                tab.clear_pane_frame_style_override(pane_id, Some(client_id));
                             }
                         }
                     }

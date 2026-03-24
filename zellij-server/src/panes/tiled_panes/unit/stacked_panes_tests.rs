@@ -8,7 +8,7 @@ use zellij_utils::input::layout::Run;
 use zellij_utils::pane_size::Offset;
 use zellij_utils::pane_size::{Dimension, PaneGeom};
 
-use crate::ui::pane_boundaries_frame::FrameParams;
+use crate::ui::pane_boundaries_frame::{FrameParams, PaneBorderStyle};
 use crate::{
     output::{CharacterChunk, SixelImageChunk},
     pty::VteBytes,
@@ -1215,13 +1215,19 @@ impl Pane for MockPane {
         unimplemented!()
     }
 
-    fn add_red_pane_frame_color_override(&mut self, _error_text: Option<String>) {
+    fn set_pane_frame_style(&mut self, _color: Option<PaneBorderStyle>) {
         unimplemented!()
     }
-    fn clear_pane_frame_color_override(&mut self, _client_id: Option<ClientId>) {
+    fn add_red_pane_frame_style_override(&mut self, _error_text: Option<String>) {
         unimplemented!()
     }
-    fn frame_color_override(&self) -> Option<PaletteColor> {
+    fn clear_pane_frame_style_override(&mut self, _client_id: Option<ClientId>) {
+        unimplemented!()
+    }
+    fn frame_style_override(&self) -> Option<PaneBorderStyle> {
+        unimplemented!()
+    }
+    fn frame_style(&self) -> Option<PaneBorderStyle> {
         unimplemented!()
     }
     fn invoked_with(&self) -> &Option<Run> {

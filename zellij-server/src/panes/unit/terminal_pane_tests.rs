@@ -1,18 +1,22 @@
 use super::super::TerminalPane;
+use crate::output::Output;
 use crate::panes::sixel::SixelImageStore;
 use crate::panes::LinkHandler;
 use crate::tab::Pane;
+use crate::ui::pane_boundaries_frame::PaneBorderStyle;
+use crate::ui::pane_contents_and_ui::PaneContentsAndUi;
+use crate::ClientId;
 use insta::assert_snapshot;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 use std::rc::Rc;
 use zellij_utils::{
-    data::{Palette, Style},
+    data::{InputMode, Palette, PaletteColor, Style},
     pane_size::{Offset, PaneGeom, SizeInPixels},
     position::Position,
 };
 
-use std::fmt::Write;
 
 fn read_fixture(fixture_name: &str) -> Vec<u8> {
     let mut path_to_file = std::path::PathBuf::new();
@@ -774,6 +778,101 @@ pub fn has_bell_reflects_grid_ring_bell() {
     assert!(
         !terminal_pane.has_bell(),
         "has_bell should be false after consume_bell"
+    );
+}
+
+#[test]
+pub fn pane_frame_style_state_set_and_cleared() {
+    let mut terminal_pane = make_terminal_pane_for_bell();
+    let custom_color = PaletteColor::Rgb((0, 224, 0));
+    let custom_style = PaneBorderStyle::foreground(custom_color);
+
+    assert_eq!(terminal_pane.frame_style(), None);
+    terminal_pane.set_pane_frame_style(Some(custom_style));
+    assert_eq!(terminal_pane.frame_style(), Some(custom_style));
+
+    terminal_pane.set_pane_frame_style(None);
+    assert_eq!(terminal_pane.frame_style(), None);
+}
+
+#[test]
+pub fn temporary_frame_style_override_does_not_clear_custom_frame_style() {
+    let mut terminal_pane = make_terminal_pane_for_bell();
+    let custom_color = PaletteColor::Rgb((0, 224, 0));
+    let custom_style = PaneBorderStyle::foreground(custom_color);
+
+    terminal_pane.set_pane_frame_style(Some(custom_style));
+    terminal_pane.add_highlight_pane_frame_style_override(None, None);
+    assert!(terminal_pane.frame_style_override().is_some());
+
+    terminal_pane.clear_pane_frame_style_override(None);
+    assert_eq!(terminal_pane.frame_style_override(), None);
+    assert_eq!(terminal_pane.frame_style(), Some(custom_style));
+}
+
+
+#[test]
+pub fn pane_frame_style_can_store_background_only() {
+    let mut terminal_pane = make_terminal_pane_for_bell();
+    let custom_style = PaneBorderStyle {
+        fg: None,
+        bg: Some(PaletteColor::Rgb((0, 26, 58))),
+    };
+
+    terminal_pane.set_pane_frame_style(Some(custom_style));
+
+    assert_eq!(terminal_pane.frame_style(), Some(custom_style));
+}
+
+#[test]
+pub fn pane_frame_style_background_is_rendered_to_output() {
+    let background = PaletteColor::Rgb((255, 0, 255));
+    let mut pane: Box<dyn Pane> = Box::new(make_terminal_pane_for_bell());
+    pane.set_pane_frame_style(Some(PaneBorderStyle {
+        fg: None,
+        bg: Some(background),
+    }));
+
+    let mut output = Output::new(
+        Rc::new(RefCell::new(SixelImageStore::default())),
+        Rc::new(RefCell::new(Some(SizeInPixels { width: 10, height: 20 }))),
+        true,
+        true,
+    );
+    let client_ids: HashSet<ClientId> = HashSet::from([1]);
+    output.add_clients(
+        &client_ids,
+        Rc::new(RefCell::new(LinkHandler::new())),
+        None,
+    );
+
+    let active_panes = HashMap::from([(1, pane.pid())]);
+    let mouse_hover_pane_id = HashMap::new();
+    let mut pane_contents_and_ui = PaneContentsAndUi::new(
+        &mut pane,
+        &mut output,
+        Style::default(),
+        &active_panes,
+        false,
+        None,
+        false,
+        false,
+        true,
+        &mouse_hover_pane_id,
+        HashMap::new(),
+        false,
+    );
+    pane_contents_and_ui
+        .render_pane_frame(1, InputMode::Normal, false, false, true)
+        .unwrap();
+
+    let serialized = output.serialize().unwrap();
+    let client_output = serialized.get(&1).expect("client output should exist");
+
+    assert!(
+        client_output.contains("\u{1b}[48;2;255;0;255m"),
+        "expected rendered frame output to contain magenta background ANSI, got: {}",
+        client_output
     );
 }
 

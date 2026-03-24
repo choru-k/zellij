@@ -244,6 +244,7 @@ message Action {
     ShowFloatingPanesAction show_floating_panes = 106;
     HideFloatingPanesAction hide_floating_panes = 107;
     SetPaneColorAction set_pane_color = 108;
+    SetPaneBorderStyleAction set_pane_border_style = 135;
     PasteAction paste = 109;
     // Pane-targeting
     ScrollUpByPaneIdAction scroll_up_by_pane_id = 110;
@@ -695,6 +696,13 @@ message SetPaneColorAction {
   optional string fg = 2;
   optional string bg = 3;
 }
+
+message SetPaneBorderStyleAction {
+  PaneId pane_id = 1;
+  optional string fg = 2;
+  optional string bg = 3;
+}
+
 
 // Supporting enums and messages
 enum InputMode {

@@ -1874,7 +1874,8 @@ impl TryFrom<Action> for ProtobufAction {
             | Action::SaveSession
             | Action::ListTabs { .. }
             | Action::CurrentTabInfo { .. }
-            | Action::SetPaneColor { .. } => Err("Unsupported action"),
+            | Action::SetPaneColor { .. }
+            | Action::SetPaneBorderStyle { .. } => Err("Unsupported action"),
         }
     }
 }
