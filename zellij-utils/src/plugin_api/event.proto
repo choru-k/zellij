@@ -66,6 +66,7 @@ enum EventType {
     PluginConfigurationChanged = 41;
     HighlightClicked = 42;
     PaneRenderReportWithAnsi = 43;
+    StackedPaneHeaderContext = 44;
 }
 
 message EventNameList {
@@ -111,6 +112,7 @@ message Event {
     PluginConfigurationChangedPayload plugin_configuration_changed_payload = 35;
     HighlightClickedPayload highlight_clicked_payload = 36;
     PaneRenderReportPayload pane_render_report_with_ansi_payload = 37;
+    StackedPaneHeaderContextPayload stacked_pane_header_context_payload = 38;
   }
 }
 
@@ -182,6 +184,38 @@ enum PaneType {
   Terminal = 0;
   Plugin = 1;
 }
+
+enum StackedPaneHeaderDirection {
+  Vertical = 0;
+  Horizontal = 1;
+}
+
+message StackedPaneHeaderKey {
+  uint32 client_id = 1;
+  uint32 tab_id = 2;
+  uint32 stack_id = 3;
+  uint64 revision = 4;
+}
+
+message StackedPaneTabContextPayload {
+  PaneId pane_id = 1;
+  string title = 2;
+  bool is_focused = 3;
+  bool is_expanded = 4;
+  bool is_plugin = 5;
+  optional int32 exit_status = 6;
+  bool has_bell = 7;
+  uint32 index = 8;
+}
+
+message StackedPaneHeaderContextPayload {
+  StackedPaneHeaderKey key = 1;
+  StackedPaneHeaderDirection direction = 2;
+  uint32 available_width = 3;
+  bool pane_frames_enabled = 4;
+  repeated StackedPaneTabContextPayload panes = 5;
+}
+
 
 message CommandPaneOpenedPayload {
   uint32 terminal_pane_id = 1;

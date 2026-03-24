@@ -13,23 +13,34 @@ use crate::{
     tab::{pane_info_for_pane, Pane, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH},
     thread_bus::ThreadSenders,
     ui::boundaries::Boundaries,
-    ui::pane_contents_and_ui::PaneContentsAndUi,
+    ui::pane_contents_and_ui::{
+        stacked_pane_header_segments, PaneContentsAndUi, RenderedStackedPaneHeaderSegment,
+        StackedPaneHeader, StackedPaneTab,
+    },
     ClientId,
 };
 use stacked_panes::StackedPanes;
 use zellij_utils::{
-    data::{Direction, ModeInfo, PaneInfo, Resize, ResizeStrategy, Style, Styling},
+    data::{
+        Direction, Event, ModeInfo, PaneInfo, Resize, ResizeStrategy, StackedPaneHeaderContext,
+        StackedPaneHeaderKey, StackedPaneHeaderSpec, StackedPaneHeaderUpdate,
+        StackedPaneTabContext, Style, Styling,
+    },
     errors::prelude::*,
     input::{
         command::RunCommand,
         layout::{Run, RunPluginOrAlias, SplitDirection},
+        options::{StackedPaneDirection, StackedPaneHeaderSource},
+        plugins::PluginAliases,
     },
     pane_size::{Offset, PaneGeom, Size, SizeInPixels, Viewport},
+    position::Position,
 };
 
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{hash_map::DefaultHasher, BTreeMap, HashMap, HashSet},
+    hash::{Hash, Hasher},
     rc::Rc,
     time::Instant,
 };
@@ -52,6 +63,53 @@ fn pane_content_offset(position_and_size: &PaneGeom, viewport: &Viewport) -> (us
     };
     (columns_offset, rows_offset)
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StackedPaneHeaderProvider {
+    pub plugin: RunPluginOrAlias,
+    pub timeout_ms: u64,
+}
+
+impl StackedPaneHeaderProvider {
+    pub fn from_config(
+        stacked_pane_header: Option<&zellij_utils::input::options::StackedPaneHeaderConfig>,
+        plugin_aliases: &PluginAliases,
+    ) -> Option<Self> {
+        let stacked_pane_header = stacked_pane_header?;
+        if !matches!(
+            stacked_pane_header.source,
+            Some(StackedPaneHeaderSource::Plugin)
+        ) {
+            return None;
+        }
+        let plugin_url = stacked_pane_header.plugin.as_deref()?;
+        let plugin = RunPluginOrAlias::from_url(
+            plugin_url,
+            &None,
+            Some(plugin_aliases),
+            std::env::current_dir().ok(),
+        )
+        .ok()?;
+
+        Some(StackedPaneHeaderProvider {
+            plugin,
+            timeout_ms: stacked_pane_header.timeout_ms.unwrap_or(16),
+        })
+    }
+}
+
+
+#[derive(Clone, Debug)]
+struct RequestedStackedPaneHeaderContext {
+    context: StackedPaneHeaderContext,
+    requested_at: Instant,
+}
+
+#[derive(Clone, Debug)]
+struct CachedStackedPaneHeaderSpec {
+    spec: StackedPaneHeaderSpec,
+}
+
+
 
 pub struct TiledPanes {
     pub panes: BTreeMap<PaneId, Box<dyn Pane>>,
@@ -62,6 +120,7 @@ pub struct TiledPanes {
     mode_info: Rc<RefCell<HashMap<ClientId, ModeInfo>>>,
     character_cell_size: Rc<RefCell<Option<SizeInPixels>>>,
     stacked_resize: Rc<RefCell<bool>>,
+    stacked_pane_direction: StackedPaneDirection,
     default_mode_info: ModeInfo,
     style: Style,
     session_is_mirrored: bool,
@@ -74,6 +133,13 @@ pub struct TiledPanes {
     client_id_to_boundaries: HashMap<ClientId, Boundaries>,
     tombstones_before_increase: Option<(PaneId, Vec<HashMap<PaneId, PaneGeom>>)>,
     tombstones_before_decrease: Option<(PaneId, Vec<HashMap<PaneId, PaneGeom>>)>,
+    stacked_pane_header_provider: Option<StackedPaneHeaderProvider>,
+    stacked_pane_header_provider_plugin_id: Option<u32>,
+    stacked_pane_header_specs: HashMap<StackedPaneHeaderKey, CachedStackedPaneHeaderSpec>,
+    latest_stacked_pane_header_specs_by_stack:
+        HashMap<(ClientId, usize, usize), CachedStackedPaneHeaderSpec>,
+    requested_stacked_pane_header_contexts:
+        HashMap<(ClientId, usize, usize), RequestedStackedPaneHeaderContext>,
 }
 
 impl TiledPanes {
@@ -102,6 +168,7 @@ impl TiledPanes {
             mode_info,
             character_cell_size,
             stacked_resize,
+            stacked_pane_direction: StackedPaneDirection::Vertical,
             default_mode_info,
             style,
             session_is_mirrored,
@@ -114,6 +181,11 @@ impl TiledPanes {
             client_id_to_boundaries: HashMap::new(),
             tombstones_before_increase: None,
             tombstones_before_decrease: None,
+            stacked_pane_header_provider: None,
+            stacked_pane_header_provider_plugin_id: None,
+            stacked_pane_header_specs: HashMap::new(),
+            latest_stacked_pane_header_specs_by_stack: HashMap::new(),
+            requested_stacked_pane_header_contexts: HashMap::new(),
         }
     }
     pub fn add_pane_with_existing_geom(&mut self, pane_id: PaneId, mut pane: Box<dyn Pane>) {
@@ -546,6 +618,257 @@ impl TiledPanes {
         // same as set_pane_frames except it reapplies the current situation
         self.set_pane_frames(self.draw_pane_frames);
     }
+    pub fn update_stacked_pane_direction(&mut self, stacked_pane_direction: StackedPaneDirection) {
+        self.stacked_pane_direction = stacked_pane_direction;
+    }
+
+    pub fn update_stacked_pane_header_provider(
+        &mut self,
+        stacked_pane_header_provider: Option<StackedPaneHeaderProvider>,
+    ) {
+        self.stacked_pane_header_provider = stacked_pane_header_provider;
+        self.stacked_pane_header_provider_plugin_id = None;
+        self.stacked_pane_header_specs.clear();
+        self.requested_stacked_pane_header_contexts.clear();
+        self.latest_stacked_pane_header_specs_by_stack.clear();
+    }
+
+    pub fn set_stacked_pane_header_provider_plugin_id(&mut self, plugin_id: Option<u32>) -> bool {
+        if self.stacked_pane_header_provider_plugin_id == plugin_id {
+            return false;
+        }
+        self.stacked_pane_header_provider_plugin_id = plugin_id;
+        self.stacked_pane_header_specs.clear();
+        self.requested_stacked_pane_header_contexts.clear();
+        self.latest_stacked_pane_header_specs_by_stack.clear();
+        true
+    }
+
+    pub fn update_stacked_pane_header(&mut self, update: StackedPaneHeaderUpdate) {
+        if self.stacked_pane_header_provider.is_none() {
+            return;
+        }
+        let cached = CachedStackedPaneHeaderSpec {
+            spec: update.spec,
+        };
+        self.stacked_pane_header_specs
+            .insert(update.key.clone(), cached.clone());
+        self.latest_stacked_pane_header_specs_by_stack.insert(
+            (update.key.client_id, update.key.tab_id, update.key.stack_id),
+            cached,
+        );
+    }
+
+    fn stacked_pane_header_provider_plugin_id(&self) -> Option<u32> {
+        self.stacked_pane_header_provider_plugin_id
+    }
+
+    pub fn accepts_stacked_pane_header_update(&self, source_plugin_id: u32) -> bool {
+        self.stacked_pane_header_provider_plugin_id() == Some(source_plugin_id)
+    }
+
+    fn stacked_pane_header_context_for_client(
+        &self,
+        tab_id: usize,
+        client_id: ClientId,
+        stacked_pane_header: &StackedPaneHeader,
+    ) -> StackedPaneHeaderContext {
+        let available_width = stacked_pane_header.full_stack_geom.cols.as_usize().saturating_sub(2);
+        let panes: Vec<StackedPaneTabContext> = stacked_pane_header
+            .tabs
+            .iter()
+            .enumerate()
+            .filter_map(|(index, tab)| {
+                self.panes.get(&tab.pane_id).map(|pane| StackedPaneTabContext {
+                    pane_id: tab.pane_id.into(),
+                    title: tab.title.clone(),
+                    is_focused: self.active_panes.get(&client_id).copied() == Some(tab.pane_id),
+                    is_expanded: tab.pane_id == stacked_pane_header.expanded_pane_id,
+                    is_plugin: matches!(tab.pane_id, PaneId::Plugin(..)),
+                    exit_status: pane.exit_status(),
+                    has_bell: pane.has_bell() || pane.get_bell_notification(),
+                    index,
+                })
+            })
+            .collect();
+        let mut hasher = DefaultHasher::new();
+        client_id.hash(&mut hasher);
+        tab_id.hash(&mut hasher);
+        stacked_pane_header.stack_id.hash(&mut hasher);
+        self.stacked_pane_direction.hash(&mut hasher);
+        available_width.hash(&mut hasher);
+        self.draw_pane_frames.hash(&mut hasher);
+        panes.hash(&mut hasher);
+        let revision = hasher.finish();
+
+        StackedPaneHeaderContext {
+            key: StackedPaneHeaderKey {
+                client_id,
+                tab_id,
+                stack_id: stacked_pane_header.stack_id,
+                revision,
+            },
+            direction: self.stacked_pane_direction,
+            available_width,
+            pane_frames_enabled: self.draw_pane_frames,
+            panes,
+        }
+    }
+
+    fn request_stacked_pane_header_for_client(
+        &mut self,
+        tab_id: usize,
+        client_id: ClientId,
+        stacked_pane_header: &StackedPaneHeader,
+    ) -> StackedPaneHeaderContext {
+        let context =
+            self.stacked_pane_header_context_for_client(tab_id, client_id, stacked_pane_header);
+        if let Some(plugin_id) = self.stacked_pane_header_provider_plugin_id() {
+            let request_key = (
+                context.key.client_id,
+                context.key.tab_id,
+                context.key.stack_id,
+            );
+            let should_send = self
+                .requested_stacked_pane_header_contexts
+                .get(&request_key)
+                .map(|existing| existing.context != context)
+                .unwrap_or(true);
+            if should_send {
+                self.requested_stacked_pane_header_contexts.insert(
+                    request_key,
+                    RequestedStackedPaneHeaderContext {
+                        context: context.clone(),
+                        requested_at: Instant::now(),
+                    },
+                );
+                let _ = self.senders.send_to_plugin(PluginInstruction::Update(vec![(
+                    Some(plugin_id),
+                    Some(client_id),
+                    Event::StackedPaneHeaderContext(context.clone()),
+                )]));
+            }
+        }
+        context
+    }
+
+    fn latest_stacked_pane_header_spec_for_stack(
+        &self,
+        client_id: ClientId,
+        tab_id: usize,
+        stack_id: usize,
+    ) -> Option<&CachedStackedPaneHeaderSpec> {
+        self.latest_stacked_pane_header_specs_by_stack
+            .get(&(client_id, tab_id, stack_id))
+    }
+
+    fn stacked_pane_header_spec_for_client(
+        &mut self,
+        tab_id: usize,
+        client_id: ClientId,
+        stacked_pane_header: &StackedPaneHeader,
+    ) -> Option<StackedPaneHeaderSpec> {
+        let _ = self.stacked_pane_header_provider.as_ref()?;
+        let context =
+            self.request_stacked_pane_header_for_client(tab_id, client_id, stacked_pane_header);
+        if let Some(cached) = self.stacked_pane_header_specs.get(&context.key) {
+            return Some(cached.spec.clone());
+        }
+        let request_key = (context.key.client_id, context.key.tab_id, context.key.stack_id);
+        let within_timeout = self
+            .requested_stacked_pane_header_contexts
+            .get(&request_key)
+            .map(|request| {
+                if let Some(provider) = &self.stacked_pane_header_provider {
+                    request.requested_at.elapsed().as_millis() <= provider.timeout_ms as u128
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false);
+        if within_timeout {
+            return self
+                .latest_stacked_pane_header_spec_for_stack(client_id, tab_id, context.key.stack_id)
+                .map(|cached| cached.spec.clone());
+        }
+        None
+    }
+
+    fn stacked_pane_header_segments_for_client(
+        &mut self,
+        tab_id: usize,
+        client_id: ClientId,
+        stacked_pane_header: &StackedPaneHeader,
+    ) -> Option<Vec<RenderedStackedPaneHeaderSegment>> {
+        let spec =
+            self.stacked_pane_header_spec_for_client(tab_id, client_id, stacked_pane_header)?;
+        Some(stacked_pane_header_segments(stacked_pane_header, &spec))
+    }
+
+    pub fn stacked_pane_header_action_at_position(
+        &mut self,
+        tab_id: usize,
+        client_id: ClientId,
+        point: &Position,
+    ) -> Option<zellij_utils::data::StackedPaneHeaderAction> {
+        for stacked_pane_header in self.stacked_pane_headers().into_values() {
+            if !stacked_pane_header.full_stack_geom.contains(point) {
+                continue;
+            }
+            if point.line() != stacked_pane_header.full_stack_geom.y as isize {
+                return None;
+            }
+            let left_boundary = stacked_pane_header.full_stack_geom.x;
+            let right_boundary = left_boundary
+                + stacked_pane_header
+                    .full_stack_geom
+                    .cols
+                    .as_usize()
+                    .saturating_sub(1);
+            if point.column() <= left_boundary || point.column() >= right_boundary {
+                return None;
+            }
+            let inner_column = point.column().saturating_sub(left_boundary + 1);
+            let segments = self
+                .stacked_pane_header_segments_for_client(tab_id, client_id, &stacked_pane_header)?;
+            let segment = segments
+                .into_iter()
+                .find(|segment| inner_column >= segment.start && inner_column < segment.end)?;
+            let action = segment.action?;
+            let target_pane_id = match &action {
+                zellij_utils::data::StackedPaneHeaderAction::FocusPane(pane_id)
+                | zellij_utils::data::StackedPaneHeaderAction::ClosePane(pane_id)
+                | zellij_utils::data::StackedPaneHeaderAction::ExpandPane(pane_id) => pane_id,
+            };
+            if stacked_pane_header
+                .tabs
+                .iter()
+                .any(|tab| tab.pane_id == (*target_pane_id).into())
+            {
+                return Some(action);
+            }
+            return None;
+        }
+        None
+    }
+    fn apply_stacked_pane_geom_overrides(
+        &mut self,
+        stacked_pane_headers: &HashMap<PaneId, StackedPaneHeader>,
+    ) {
+        let expanded_stack_pane_ids: HashSet<PaneId> =
+            stacked_pane_headers.keys().copied().collect();
+        for (pane_id, pane) in self.panes.iter_mut() {
+            if expanded_stack_pane_ids.contains(pane_id) {
+                if let Some(stack_header) = stacked_pane_headers.get(pane_id) {
+                    pane.set_geom_override(stack_header.full_stack_geom);
+                }
+            } else if pane.position_and_size().is_stacked() && pane.geom_override().is_some() {
+                pane.reset_size_and_position_override();
+            }
+        }
+    }
+
+
     pub fn set_pane_frames(&mut self, draw_pane_frames: bool) {
         self.draw_pane_frames = draw_pane_frames;
         let viewport = *self.viewport.borrow();
@@ -998,9 +1321,145 @@ impl TiledPanes {
     pub fn has_panes(&self) -> bool {
         !self.panes.is_empty()
     }
+    fn stacked_pane_headers(&self) -> HashMap<PaneId, StackedPaneHeader> {
+        if self.stacked_pane_direction != StackedPaneDirection::Horizontal {
+            return HashMap::new();
+        }
+
+        let mut panes_by_stack: HashMap<usize, Vec<(PaneId, PaneGeom, String)>> = HashMap::new();
+
+        for (pane_id, pane) in self.panes.iter() {
+            if self.panes_to_hide.contains(pane_id) {
+                continue;
+            }
+
+            let Some(stack_id) = pane.position_and_size().stacked else {
+                continue;
+            };
+
+            panes_by_stack.entry(stack_id).or_default().push((
+                *pane_id,
+                pane.position_and_size(),
+                pane.current_title(),
+            ));
+        }
+
+        let mut stacked_pane_headers = HashMap::new();
+        for (stack_id, mut panes_in_stack) in panes_by_stack.into_iter() {
+            panes_in_stack.sort_by(|(a_id, a_geom, _), (b_id, b_geom, _)| {
+                a_geom
+                    .y
+                    .cmp(&b_geom.y)
+                    .then(a_geom.x.cmp(&b_geom.x))
+                    .then(a_id.cmp(b_id))
+            });
+
+            let Some((flexible_pane_id, flexible_pane_geom)) = panes_in_stack
+                .iter()
+                .find(|(_pane_id, pane_geom, _)| !pane_geom.rows.is_fixed())
+                .map(|(pane_id, pane_geom, _)| (*pane_id, *pane_geom))
+            else {
+                continue;
+            };
+            let Some(first_pane_geom) = panes_in_stack.first().map(|(_, pane_geom, _)| *pane_geom)
+            else {
+                continue;
+            };
+            let Some(last_pane_geom) = panes_in_stack.last().map(|(_, pane_geom, _)| *pane_geom)
+            else {
+                continue;
+            };
+
+            let mut full_stack_rows = flexible_pane_geom.rows;
+            full_stack_rows
+                .set_inner((last_pane_geom.y - first_pane_geom.y) + last_pane_geom.rows.as_usize());
+
+            let full_stack_geom = PaneGeom {
+                x: first_pane_geom.x,
+                y: first_pane_geom.y,
+                cols: first_pane_geom.cols,
+                rows: full_stack_rows,
+                stacked: first_pane_geom.stacked,
+                logical_position: flexible_pane_geom.logical_position,
+                ..Default::default()
+            };
+
+            let tabs = panes_in_stack
+                .into_iter()
+                .map(|(pane_id, _pane_geom, title)| StackedPaneTab { pane_id, title })
+                .collect();
+
+            stacked_pane_headers.insert(
+                flexible_pane_id,
+                StackedPaneHeader {
+                    full_stack_geom,
+                    stack_id,
+                    expanded_pane_id: flexible_pane_id,
+                    tabs,
+                },
+            );
+        }
+        stacked_pane_headers
+    }
+
+    pub fn stacked_pane_id_at_position(
+        &mut self,
+        tab_id: usize,
+        client_id: Option<ClientId>,
+        point: &Position,
+    ) -> Option<PaneId> {
+        for stacked_pane_header in self.stacked_pane_headers().into_values() {
+            if !stacked_pane_header.full_stack_geom.contains(point) {
+                continue;
+            }
+
+            if point.line() == stacked_pane_header.full_stack_geom.y as isize {
+                let left_boundary = stacked_pane_header.full_stack_geom.x;
+                let right_boundary = left_boundary
+                    + stacked_pane_header
+                        .full_stack_geom
+                        .cols
+                        .as_usize()
+                        .saturating_sub(1);
+                if point.column() <= left_boundary || point.column() >= right_boundary {
+                    return stacked_pane_header.expanded_pane_id();
+                }
+
+                let inner_column = point.column().saturating_sub(left_boundary + 1);
+                if let Some(client_id) = client_id {
+                    if let Some(segments) = self.stacked_pane_header_segments_for_client(
+                        tab_id,
+                        client_id,
+                        &stacked_pane_header,
+                    ) {
+                        if let Some(segment) = segments
+                            .iter()
+                            .find(|segment| inner_column >= segment.start && inner_column < segment.end)
+                        {
+                            if let Some(pane_id) = segment.pane_id {
+                                return Some(pane_id);
+                            }
+                            if segment.action.is_some() {
+                                return None;
+                            }
+                        }
+                        return stacked_pane_header.expanded_pane_id();
+                    }
+                }
+                return stacked_pane_header
+                    .pane_id_at(inner_column)
+                    .or_else(|| stacked_pane_header.expanded_pane_id());
+            }
+
+            return stacked_pane_header.expanded_pane_id();
+        }
+        None
+    }
+
     pub fn render(
         &mut self,
         output: &mut Output,
+        tab_id: usize,
         floating_panes_are_visible: bool,
         mouse_hover_pane_id: &HashMap<ClientId, PaneId>,
         current_pane_group: HashMap<ClientId, Vec<PaneId>>,
@@ -1029,6 +1488,27 @@ impl TiledPanes {
                 .map(|(client_id, pane_id)| (*client_id, *pane_id))
                 .collect()
         };
+        let stacked_pane_headers = self.stacked_pane_headers();
+        self.apply_stacked_pane_geom_overrides(&stacked_pane_headers);
+        let mut stacked_pane_header_specs_by_client: HashMap<
+            ClientId,
+            HashMap<PaneId, StackedPaneHeaderSpec>,
+        > = HashMap::new();
+        for client_id in &connected_clients {
+            let mut specs_for_client = HashMap::new();
+            for (pane_id, stacked_pane_header) in stacked_pane_headers.iter() {
+                if let Some(stacked_pane_header_spec) =
+                    self.stacked_pane_header_spec_for_client(
+                        tab_id,
+                        *client_id,
+                        stacked_pane_header,
+                    )
+                {
+                    specs_for_client.insert(*pane_id, stacked_pane_header_spec);
+                }
+            }
+            stacked_pane_header_specs_by_client.insert(*client_id, specs_for_client);
+        }
         let (stacked_pane_ids_under_flexible_pane, stacked_pane_ids_over_flexible_pane) = {
             StackedPanes::new_from_btreemap(&mut self.panes, &self.panes_to_hide)
                 .stacked_pane_ids_under_and_over_flexible_panes()
@@ -1041,6 +1521,13 @@ impl TiledPanes {
         };
         let selectable_pane_count = self.panes.iter().filter(|(_, p)| p.selectable()).count();
         for (kind, pane) in self.panes.iter_mut() {
+            let pane_id = pane.pid();
+            let pane_is_hidden = self.panes_to_hide.contains(&pane_id);
+            let stack_header = if !pane_is_hidden && pane.current_geom().is_stacked() {
+                stacked_pane_headers.get(&pane_id)
+            } else {
+                None
+            };
             match kind {
                 PaneId::Terminal(_) => {
                     output.add_pane_contents(
@@ -1074,7 +1561,7 @@ impl TiledPanes {
                 },
             }
 
-            if !self.panes_to_hide.contains(&pane.pid()) {
+            if !pane_is_hidden {
                 let pane_is_stacked_under =
                     stacked_pane_ids_under_flexible_pane.contains(&pane.pid());
                 let pane_is_stacked_over =
@@ -1086,7 +1573,7 @@ impl TiledPanes {
                 let should_draw_pane_frames = self.draw_pane_frames;
                 let pane_is_stacked = pane.current_geom().is_stacked();
                 let pane_is_one_liner_in_stack =
-                    pane_is_stacked && pane.current_geom().rows.is_fixed();
+                    pane_is_stacked && stack_header.is_none() && pane.current_geom().rows.is_fixed();
                 let pane_is_selectable = pane.selectable();
                 let show_help_text = active_panes.iter().any(|(client_id, pane_id)| {
                     pane_id == &pane.pid()
@@ -1134,6 +1621,58 @@ impl TiledPanes {
                                 pane_is_selectable,
                             )
                             .with_context(err_context)?;
+                        if let Some(stack_header) = stack_header {
+                            let selected_pane_id = active_panes
+                                .get(client_id)
+                                .copied()
+                                .filter(|pane_id| {
+                                    stack_header.tabs.iter().any(|tab| tab.pane_id == *pane_id)
+                                });
+                            let stacked_pane_header_spec = stacked_pane_header_specs_by_client
+                                .get(client_id)
+                                .and_then(|specs_for_client| specs_for_client.get(&pane_id));
+                            pane_contents_and_ui
+                                .render_stacked_pane_header(
+                                    *client_id,
+                                    client_mode,
+                                    self.session_is_mirrored,
+                                    stack_header,
+                                    selected_pane_id,
+                                    stacked_pane_header_spec,
+                                )
+                                .with_context(err_context)?;
+                        }
+                    } else if let Some(stack_header) = stack_header {
+                        let selected_pane_id = active_panes
+                            .get(client_id)
+                            .copied()
+                            .filter(|pane_id| {
+                                stack_header.tabs.iter().any(|tab| tab.pane_id == *pane_id)
+                            });
+                        let stacked_pane_header_spec = stacked_pane_header_specs_by_client
+                            .get(client_id)
+                            .and_then(|specs_for_client| specs_for_client.get(&pane_id));
+                        pane_contents_and_ui
+                            .render_stacked_pane_header(
+                                *client_id,
+                                client_mode,
+                                self.session_is_mirrored,
+                                stack_header,
+                                selected_pane_id,
+                                stacked_pane_header_spec,
+                            )
+                            .with_context(err_context)?;
+                        let boundaries = client_id_to_boundaries
+                            .entry(*client_id)
+                            .or_insert_with(|| Boundaries::new(*self.viewport.borrow()));
+                        pane_contents_and_ui.render_pane_boundaries(
+                            *client_id,
+                            client_mode,
+                            boundaries,
+                            self.session_is_mirrored,
+                            pane_is_on_top_of_stack,
+                            pane_is_on_bottom_of_stack,
+                        );
                     } else if pane_is_stacked {
                         // if we have no pane frames but the pane is stacked, we need to render its
                         // frame which will amount to only rendering the title line

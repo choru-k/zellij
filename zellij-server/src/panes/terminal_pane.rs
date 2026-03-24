@@ -91,6 +91,7 @@ pub enum PaneId {
     Plugin(u32), // FIXME: Drop the trait object, make this a wrapper for the struct?
 }
 
+
 // because crate architecture and reasons...
 impl From<ZellijUtilsPaneId> for PaneId {
     fn from(zellij_utils_pane_id: ZellijUtilsPaneId) -> Self {
@@ -190,6 +191,7 @@ impl Pane for TerminalPane {
     fn reset_size_and_position_override(&mut self) {
         self.geom_override = None;
         self.reflow_lines();
+        self.render_full_viewport();
     }
     fn set_geom(&mut self, position_and_size: PaneGeom) {
         let is_pinned = self.geom.is_pinned;
@@ -201,6 +203,7 @@ impl Pane for TerminalPane {
     fn set_geom_override(&mut self, pane_geom: PaneGeom) {
         self.geom_override = Some(pane_geom);
         self.reflow_lines();
+        self.render_full_viewport();
     }
     fn handle_pty_bytes(&mut self, bytes: VteBytes) {
         self.set_should_render(true);

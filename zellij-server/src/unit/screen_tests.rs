@@ -18,7 +18,7 @@ use zellij_utils::input::layout::{
     RunPlugin, RunPluginLocation, RunPluginOrAlias, SplitDirection, TiledPaneLayout,
 };
 use zellij_utils::input::mouse::MouseEvent;
-use zellij_utils::input::options::Options;
+use zellij_utils::input::options::{Options, StackedPaneDirection};
 use zellij_utils::ipc::IpcReceiverWithContext;
 use zellij_utils::pane_size::{Size, SizeInPixels};
 use zellij_utils::position::Position;
@@ -361,6 +361,8 @@ fn create_new_screen(
         layout_dir,
         explicitly_disable_kitty_keyboard_protocol,
         stacked_resize,
+        StackedPaneDirection::Vertical,
+        None,
         None,
         false,
         web_sharing,
@@ -647,6 +649,7 @@ impl MockScreen {
             current_input_modes: self.session_metadata.current_input_modes.clone(),
             web_sharing: WebSharing::Off,
             config_file_path: self.session_metadata.config_file_path.clone(),
+            stacked_pane_header_provider: None,
         }
     }
 }
@@ -707,6 +710,7 @@ impl MockScreen {
             current_input_modes: HashMap::new(),
             web_sharing: WebSharing::Off,
             config_file_path: None,
+            stacked_pane_header_provider: None,
         };
 
         let os_input = FakeInputOutput::default();
@@ -832,6 +836,127 @@ fn new_tab(screen: &mut Screen, pid: u32, tab_index: usize) {
             None,
         )
         .expect("TEST");
+}
+
+fn stacked_pane_header_provider() -> (RunPluginOrAlias, crate::panes::StackedPaneHeaderProvider) {
+    let provider_plugin =
+        RunPluginOrAlias::from_url("file:///path/to/provider.wasm", &None, None, None).unwrap();
+    let provider = crate::panes::StackedPaneHeaderProvider {
+        plugin: provider_plugin.clone(),
+        timeout_ms: 16,
+    };
+    (provider_plugin, provider)
+}
+
+fn count_stacked_pane_header_context_updates(
+    receiver: &Receiver<(PluginInstruction, ErrorContext)>,
+) -> usize {
+    let mut context_updates = 0;
+    while let Ok((instruction, _err_ctx)) = receiver.try_recv() {
+        if let PluginInstruction::Update(updates) = instruction {
+            context_updates += updates
+                .into_iter()
+                .filter(|(_, _, event)| matches!(event, Event::StackedPaneHeaderContext(..)))
+                .count();
+        }
+    }
+    context_updates
+}
+
+#[test]
+fn stacked_pane_header_provider_plugin_id_propagates_to_all_tabs() {
+    let size = Size {
+        cols: 121,
+        rows: 20,
+    };
+    let mut screen = create_new_screen(size, true, true);
+    let (provider_plugin, provider) = stacked_pane_header_provider();
+    screen.stacked_pane_header_provider = Some(provider);
+
+    new_tab(&mut screen, 1, 0);
+    new_tab(&mut screen, 2, 1);
+
+    assert!(screen
+        .tabs
+        .values()
+        .all(|tab| !tab.accepts_stacked_pane_header_update(42)));
+
+    screen.maybe_set_stacked_pane_header_provider_plugin_id(&provider_plugin, 42);
+
+    assert!(screen
+        .tabs
+        .values()
+        .all(|tab| tab.accepts_stacked_pane_header_update(42)));
+}
+
+#[test]
+fn new_tabs_inherit_known_stacked_pane_header_provider_plugin_id() {
+    let size = Size {
+        cols: 121,
+        rows: 20,
+    };
+    let mut screen = create_new_screen(size, true, true);
+    let (provider_plugin, provider) = stacked_pane_header_provider();
+    screen.stacked_pane_header_provider = Some(provider);
+
+    new_tab(&mut screen, 1, 0);
+    screen.maybe_set_stacked_pane_header_provider_plugin_id(&provider_plugin, 42);
+    new_tab(&mut screen, 2, 1);
+
+    assert!(screen
+        .get_tab_by_id(1)
+        .unwrap()
+        .accepts_stacked_pane_header_update(42));
+}
+
+#[test]
+fn provider_reload_re_requests_stacked_pane_header_context() {
+    let size = Size {
+        cols: 121,
+        rows: 20,
+    };
+    let mut screen = create_new_screen(size, true, true);
+    let (mock_plugin_sender, mock_plugin_receiver): ChannelWithContext<PluginInstruction> =
+        channels::unbounded();
+    screen
+        .bus
+        .senders
+        .replace_to_plugin(SenderWithContext::new(mock_plugin_sender));
+    let (provider_plugin, provider) = stacked_pane_header_provider();
+    screen.stacked_pane_header_provider = Some(provider);
+    screen.connected_clients.borrow_mut().insert(1, false);
+    screen.stacked_pane_direction = StackedPaneDirection::Horizontal;
+
+    new_tab(&mut screen, 1, 0);
+    screen
+        .get_tab_by_id_mut(0)
+        .unwrap()
+        .new_stacked_pane(
+            PaneId::Terminal(2),
+            Some("stacked".to_owned()),
+            None,
+            false,
+            false,
+            None,
+            Some(1),
+            None,
+            None,
+        )
+        .unwrap();
+
+    screen.maybe_set_stacked_pane_header_provider_plugin_id(&provider_plugin, 42);
+    screen.render_to_clients().unwrap();
+    assert_eq!(
+        count_stacked_pane_header_context_updates(&mock_plugin_receiver),
+        1
+    );
+
+    screen.maybe_set_stacked_pane_header_provider_plugin_id(&provider_plugin, 43);
+    screen.render_to_clients().unwrap();
+    assert_eq!(
+        count_stacked_pane_header_context_updates(&mock_plugin_receiver),
+        1
+    );
 }
 
 #[test]
@@ -5339,6 +5464,8 @@ fn create_new_screen_with_message_capture(
         layout_dir,
         explicitly_disable_kitty_keyboard_protocol,
         stacked_resize,
+        StackedPaneDirection::Vertical,
+        None,
         None,
         false,
         web_sharing,

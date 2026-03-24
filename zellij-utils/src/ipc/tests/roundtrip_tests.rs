@@ -13,7 +13,10 @@ use crate::input::layout::{
     TiledPaneLayout,
 };
 use crate::input::mouse::{MouseEvent, MouseEventType};
-use crate::input::options::{Clipboard, OnForceClose, Options};
+use crate::input::options::{
+    Clipboard, OnForceClose, Options, StackedPaneDirection, StackedPaneHeaderConfig,
+    StackedPaneHeaderFallback, StackedPaneHeaderSource,
+};
 use crate::ipc::{
     ClientToServerMsg, ColorRegister, ExitReason, PaneReference, PixelDimensions, ServerToClientMsg,
 };
@@ -476,6 +479,13 @@ fn test_client_messages() {
                 web_server: Some(true),
                 web_sharing: Some(WebSharing::On),
                 stacked_resize: Some(true),
+                stacked_pane_direction: Some(StackedPaneDirection::Horizontal),
+                stacked_pane_header: Some(StackedPaneHeaderConfig {
+                    source: Some(StackedPaneHeaderSource::Plugin),
+                    plugin: Some("file:/path/to/stacked-pane-header.wasm".to_owned()),
+                    fallback: Some(StackedPaneHeaderFallback::Builtin),
+                    timeout_ms: Some(16),
+                }),
                 show_startup_tips: Some(true),
                 show_release_notes: Some(true),
                 advanced_mouse_actions: Some(true),
@@ -3546,4 +3556,36 @@ fn set_pane_color_wire_roundtrip() {
         .expect("Failed to convert decoded protobuf back to Rust");
 
     assert_eq!(original, roundtrip);
+}
+
+
+#[test]
+fn options_decode_unspecified_stacked_header_enums_as_none() {
+    use crate::client_server_contract::client_server_contract::{
+        Options as ProtobufOptions, StackDirection, StackedPaneHeaderConfig as ProtobufStackedPaneHeaderConfig,
+        StackedPaneHeaderFallback, StackedPaneHeaderSource,
+    };
+
+    let decoded = Options::try_from(ProtobufOptions {
+        stacked_pane_direction: Some(StackDirection::Unspecified as i32),
+        stacked_pane_header: Some(ProtobufStackedPaneHeaderConfig {
+            source: Some(StackedPaneHeaderSource::Unspecified as i32),
+            plugin: Some("file:/tmp/header.wasm".to_owned()),
+            fallback: Some(StackedPaneHeaderFallback::Unspecified as i32),
+            timeout_ms: Some(16),
+        }),
+        ..Default::default()
+    })
+    .expect("options should decode");
+
+    assert_eq!(decoded.stacked_pane_direction, None);
+    assert_eq!(
+        decoded.stacked_pane_header,
+        Some(StackedPaneHeaderConfig {
+            source: None,
+            plugin: Some("file:/tmp/header.wasm".to_owned()),
+            fallback: None,
+            timeout_ms: Some(16),
+        })
+    );
 }

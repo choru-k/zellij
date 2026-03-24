@@ -170,6 +170,7 @@ enum MouseAction {
         pane_id: PaneId,
     },
     NoAction,
+    ExecuteStackedPaneHeaderAction(zellij_utils::data::StackedPaneHeaderAction),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,7 +204,7 @@ struct ClickedPaneDetails {
     terminal_wants_mouse: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct MouseEventContext {
     pane_id_at_position: Option<PaneId>,
     active_pane_id: Option<PaneId>,
@@ -216,6 +217,7 @@ struct MouseEventContext {
     pinned_unselectable: Option<PaneId>,
     focus_follows_mouse: bool,
     mouse_click_through: bool,
+    stacked_pane_header_action: Option<zellij_utils::data::StackedPaneHeaderAction>,
 }
 
 fn edge_and_delta_to_strategies(
@@ -354,7 +356,8 @@ impl MouseHandler {
     ) -> Result<MouseEventContext> {
         let err_context = || format!("failed to gather context for event {event:?}");
 
-        let pane_id_at_position = Self::get_pane_at(tab, &event.position, false)
+        let pane_id_at_position =
+            Self::get_pane_at(tab, &event.position, false, Some(client_id))
             .with_context(err_context)?
             .map(|p| p.pid());
         let active_pane_id = tab.get_active_pane_id(client_id);
@@ -387,6 +390,8 @@ impl MouseHandler {
             (None, None)
         };
 
+        let stacked_pane_header_action =
+            tab.stacked_pane_header_action_at_position(&event.position, client_id);
         Ok(MouseEventContext {
             pane_id_at_position,
             active_pane_id,
@@ -397,6 +402,7 @@ impl MouseHandler {
             clicked_pane,
             pinned_selectable,
             pinned_unselectable,
+            stacked_pane_header_action,
             focus_follows_mouse: tab.focus_follows_mouse,
             mouse_click_through: tab.mouse_click_through,
         })
@@ -411,7 +417,7 @@ impl MouseHandler {
         client_id: ClientId,
     ) -> Option<ClickedPaneDetails> {
         let is_floating = tab.floating_panes.panes_contain(&pane_id);
-        let pane = Self::get_pane_at(tab, position, false).ok()??;
+        let pane = Self::get_pane_at(tab, position, false, Some(client_id)).ok()??;
 
         let on_frame = pane.position_is_on_frame(position);
         let frame_intercepted = on_frame && pane.intercept_mouse_event_on_frame(event, client_id);
@@ -713,6 +719,9 @@ impl MouseHandler {
                 position,
                 event: click_event,
             } => Self::execute_focus_pane_and_click_through(tab, position, click_event, client_id),
+            MouseAction::ExecuteStackedPaneHeaderAction(action) => {
+                Self::execute_stacked_pane_header_action(tab, action, client_id)
+            },
             MouseAction::ShowFloatingPanesAndFocus { pane_id } => {
                 tab.show_floating_panes();
                 tab.floating_panes.focus_pane(pane_id, client_id);
@@ -801,7 +810,7 @@ impl MouseHandler {
         let never_resized = Self::stop_pane_resize_with_mouse(tab, position, client_id)
             .with_context(err_context)?;
         if never_resized {
-            let pane_id_at_position = Self::get_pane_at(tab, &position, false)
+            let pane_id_at_position = Self::get_pane_at(tab, &position, false, Some(client_id))
                 .with_context(err_context)?
                 .map(|p| p.pid());
             let active_pane_id = tab
@@ -814,6 +823,26 @@ impl MouseHandler {
             }
         }
         Ok(MouseEffect::state_changed())
+    }
+
+    fn execute_stacked_pane_header_action(
+        tab: &mut Tab,
+        action: zellij_utils::data::StackedPaneHeaderAction,
+        client_id: ClientId,
+    ) -> Result<MouseEffect> {
+        clear_hover_for_client(tab, client_id);
+        match action {
+            zellij_utils::data::StackedPaneHeaderAction::FocusPane(pane_id)
+            | zellij_utils::data::StackedPaneHeaderAction::ExpandPane(pane_id) => {
+                tab.tiled_panes.focus_pane_if_exists(pane_id.into(), client_id)?;
+                tab.set_pane_active_at(pane_id.into());
+                Ok(MouseEffect::state_changed())
+            },
+            zellij_utils::data::StackedPaneHeaderAction::ClosePane(pane_id) => {
+                tab.close_pane_by_pane_id(pane_id.into(), None)?;
+                Ok(MouseEffect::state_changed())
+            },
+        }
     }
 
     fn execute_focus_pane(
@@ -1000,7 +1029,7 @@ impl MouseHandler {
             let active_pane_id = tab
                 .get_active_pane_id(client_id)
                 .ok_or_else(|| anyhow!("Failed to find active pane"))?;
-            let pane_id_at_position = Self::get_pane_at(tab, &position, false)
+            let pane_id_at_position = Self::get_pane_at(tab, &position, false, Some(client_id))
                 .with_context(err_context)?
                 .ok_or_else(|| anyhow!("Failed to find pane at position"))?
                 .pid();
@@ -1290,6 +1319,9 @@ impl MouseHandler {
         let is_plain_left_press =
             event.left && event.event_type == MouseEventType::Press && !event.ctrl && !event.alt;
         if is_plain_left_press {
+            if let Some(action) = ctx.stacked_pane_header_action.clone() {
+                return Ok(MouseAction::ExecuteStackedPaneHeaderAction(action));
+            }
             let Some(details) = &ctx.clicked_pane else {
                 return Ok(MouseAction::NoAction);
             };
@@ -1452,14 +1484,14 @@ impl MouseHandler {
                         return Some(pane);
                     }
                 }
-            } else if let Ok(Some(clicked_pane_id)) = tab.get_pane_id_at(point, false) {
+            } else if let Ok(Some(clicked_pane_id)) = tab.get_pane_id_at(point, false, None) {
                 if let Some(pane) = tab.tiled_panes.get_pane_mut(clicked_pane_id) {
                     if !pane.selectable() {
                         return Some(pane);
                     }
                 }
             }
-        } else if let Ok(Some(clicked_pane_id)) = tab.get_pane_id_at(point, false) {
+        } else if let Ok(Some(clicked_pane_id)) = tab.get_pane_id_at(point, false, None) {
             if let Some(pane) = tab.tiled_panes.get_pane_mut(clicked_pane_id) {
                 if !pane.selectable() {
                     return Some(pane);
@@ -1497,7 +1529,8 @@ impl MouseHandler {
                 return Ok(());
             }
         }
-        if let Some(clicked_pane) = tab.get_pane_id_at(point, true).with_context(err_context)? {
+        if let Some(clicked_pane) = tab
+    .get_pane_id_at(point, true, Some(client_id)).with_context(err_context)? {
             tab.tiled_panes.focus_pane(clicked_pane, client_id);
             tab.set_pane_active_at(clicked_pane);
             if tab.floating_panes.panes_are_visible() {
@@ -1518,7 +1551,7 @@ impl MouseHandler {
             format!("failed to handle scrollwheel up at position {point:?} for client {client_id}")
         };
 
-        if let Some(pane) = Self::get_pane_at(tab, point, false).with_context(err_context)? {
+        if let Some(pane) = Self::get_pane_at(tab, point, false, Some(client_id)).with_context(err_context)? {
             let relative_position = pane.relative_position(point);
             if let Some(mouse_event) = pane.mouse_scroll_up(&relative_position) {
                 tab.write_to_terminal_at(mouse_event.into_bytes(), point, client_id)
@@ -1549,7 +1582,7 @@ impl MouseHandler {
             )
         };
 
-        if let Some(pane) = Self::get_pane_at(tab, point, false).with_context(err_context)? {
+        if let Some(pane) = Self::get_pane_at(tab, point, false, Some(client_id)).with_context(err_context)? {
             let relative_position = pane.relative_position(point);
             if let Some(mouse_event) = pane.mouse_scroll_down(&relative_position) {
                 tab.write_to_terminal_at(mouse_event.into_bytes(), point, client_id)
@@ -1646,6 +1679,7 @@ impl MouseHandler {
         tab: &'a mut Tab,
         point: &Position,
         search_selectable: bool,
+        client_id: Option<ClientId>,
     ) -> Result<Option<&'a mut Box<dyn Pane>>> {
         let err_context = || format!("failed to get pane at position {point:?}");
 
@@ -1667,7 +1701,7 @@ impl MouseHandler {
             }
         }
         if let Some(pane_id) = tab
-            .get_pane_id_at(point, search_selectable)
+            .get_pane_id_at(point, search_selectable, client_id)
             .with_context(err_context)?
         {
             Ok(tab.tiled_panes.get_pane_mut(pane_id))

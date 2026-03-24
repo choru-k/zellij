@@ -51,7 +51,7 @@ use zellij_utils::input::command::RunCommand;
 use zellij_utils::input::config::Config;
 use zellij_utils::input::keybinds::Keybinds;
 use zellij_utils::input::mouse::MouseEvent;
-use zellij_utils::input::options::Clipboard;
+use zellij_utils::input::options::{Clipboard, StackedPaneDirection};
 use zellij_utils::ipc::{ExitReason, ServerToClientMsg};
 use zellij_utils::pane_size::{PaneGeom, Size, SizeInPixels};
 use zellij_utils::shared::clean_string_from_control_and_linebreak;
@@ -601,12 +601,18 @@ pub enum ScreenInstruction {
         rounded_corners: bool,
         hide_session_name: bool,
         stacked_resize: bool,
+        stacked_pane_direction: StackedPaneDirection,
+        stacked_pane_header_provider: Option<crate::panes::StackedPaneHeaderProvider>,
         default_editor: Option<PathBuf>,
         advanced_mouse_actions: bool,
         mouse_hover_effects: bool,
         visual_bell: bool,
         focus_follows_mouse: bool,
         mouse_click_through: bool,
+    },
+    UpdateStackedPaneHeader {
+        source_plugin_id: u32,
+        stacked_pane_header: zellij_utils::data::StackedPaneHeaderUpdate,
     },
     RerunCommandPane(u32, Option<NotificationEnd>), // u32 - terminal pane id
     ResizePaneWithId(ResizeStrategy, PaneId),
@@ -928,6 +934,9 @@ impl From<&ScreenInstruction> for ScreenContext {
             ScreenInstruction::ListTabs { .. } => ScreenContext::ListTabs,
             ScreenInstruction::GetCurrentTabInfo { .. } => ScreenContext::GetCurrentTabInfo,
             ScreenInstruction::Reconfigure { .. } => ScreenContext::Reconfigure,
+            ScreenInstruction::UpdateStackedPaneHeader { .. } => {
+                ScreenContext::UpdateStackedPaneHeader
+            },
             ScreenInstruction::RerunCommandPane { .. } => ScreenContext::RerunCommandPane,
             ScreenInstruction::ResizePaneWithId(..) => ScreenContext::ResizePaneWithId,
             ScreenInstruction::EditScrollbackForPaneWithId(..) => {
@@ -1209,6 +1218,9 @@ pub(crate) struct Screen {
     pixel_dimensions: PixelDimensions,
     character_cell_size: Rc<RefCell<Option<SizeInPixels>>>,
     stacked_resize: Rc<RefCell<bool>>,
+    stacked_pane_direction: StackedPaneDirection,
+    stacked_pane_header_provider: Option<crate::panes::StackedPaneHeaderProvider>,
+    stacked_pane_header_provider_plugin_id: Option<u32>,
     sixel_image_store: Rc<RefCell<SixelImageStore>>,
     terminal_emulator_colors: Rc<RefCell<Palette>>,
     terminal_emulator_color_codes: Rc<RefCell<HashMap<usize, String>>>,
@@ -1291,6 +1303,8 @@ impl Screen {
         layout_dir: Option<PathBuf>,
         explicitly_disable_kitty_keyboard_protocol: bool,
         stacked_resize: bool,
+        stacked_pane_direction: StackedPaneDirection,
+        stacked_pane_header_provider: Option<crate::panes::StackedPaneHeaderProvider>,
         default_editor: Option<PathBuf>,
         web_clients_allowed: bool,
         web_sharing: WebSharing,
@@ -1315,6 +1329,9 @@ impl Screen {
             pixel_dimensions: Default::default(),
             character_cell_size: Rc::new(RefCell::new(None)),
             stacked_resize: Rc::new(RefCell::new(stacked_resize)),
+            stacked_pane_direction,
+            stacked_pane_header_provider,
+            stacked_pane_header_provider_plugin_id: None,
             sixel_image_store: Rc::new(RefCell::new(SixelImageStore::default())),
             style: client_attributes.style,
             connected_clients: Rc::new(RefCell::new(HashMap::new())),
@@ -2103,6 +2120,34 @@ impl Screen {
         &self.tabs
     }
 
+    fn matches_stacked_pane_header_provider(
+        &self,
+        run_plugin_or_alias: &RunPluginOrAlias,
+    ) -> bool {
+        self.stacked_pane_header_provider.as_ref().map_or(false, |provider| {
+            provider
+                .plugin
+                .is_equivalent_to_run(&Some(Run::Plugin(run_plugin_or_alias.clone())))
+        })
+    }
+
+    fn set_stacked_pane_header_provider_plugin_id(&mut self, plugin_id: Option<u32>) {
+        self.stacked_pane_header_provider_plugin_id = plugin_id;
+        for tab in self.tabs.values_mut() {
+            tab.set_stacked_pane_header_provider_plugin_id(plugin_id);
+        }
+    }
+
+    fn maybe_set_stacked_pane_header_provider_plugin_id(
+        &mut self,
+        run_plugin_or_alias: &RunPluginOrAlias,
+        plugin_id: u32,
+    ) {
+        if self.matches_stacked_pane_header_provider(run_plugin_or_alias) {
+            self.set_stacked_pane_header_provider_plugin_id(Some(plugin_id));
+        }
+    }
+
     /// Returns an immutable reference to this [`Screen`]'s active [`Tab`].
     pub fn get_active_tab(&self, client_id: ClientId) -> Result<&Tab> {
         match self.active_tab_ids.get(&client_id) {
@@ -2327,6 +2372,11 @@ impl Screen {
             self.mouse_click_through,
             self.web_server_ip,
             self.web_server_port,
+        );
+        tab.update_stacked_pane_direction(self.stacked_pane_direction);
+        tab.update_stacked_pane_header_provider(self.stacked_pane_header_provider.clone());
+        tab.set_stacked_pane_header_provider_plugin_id(
+            self.stacked_pane_header_provider_plugin_id,
         );
         for (client_id, mode_info) in &self.mode_info {
             tab.change_mode_info(mode_info.clone(), *client_id);
@@ -3797,6 +3847,8 @@ impl Screen {
         rounded_corners: bool,
         hide_session_name: bool,
         stacked_resize: bool,
+        stacked_pane_direction: StackedPaneDirection,
+        stacked_pane_header_provider: Option<crate::panes::StackedPaneHeaderProvider>,
         default_editor: Option<PathBuf>,
         advanced_mouse_actions: bool,
         mouse_hover_effects: bool,
@@ -3829,6 +3881,13 @@ impl Screen {
         {
             *self.stacked_resize.borrow_mut() = stacked_resize;
         }
+        let stacked_pane_header_provider_changed =
+            self.stacked_pane_header_provider != stacked_pane_header_provider;
+        self.stacked_pane_direction = stacked_pane_direction;
+        self.stacked_pane_header_provider = stacked_pane_header_provider.clone();
+        if stacked_pane_header_provider_changed {
+            self.stacked_pane_header_provider_plugin_id = None;
+        }
         if let Some(copy_to_clipboard) = copy_to_clipboard {
             self.copy_options.clipboard = copy_to_clipboard;
         }
@@ -3840,6 +3899,11 @@ impl Screen {
             tab.update_auto_layout(auto_layout);
             tab.update_copy_options(&self.copy_options);
             tab.set_pane_frames(pane_frames);
+            tab.update_stacked_pane_direction(stacked_pane_direction);
+            tab.update_stacked_pane_header_provider(stacked_pane_header_provider.clone());
+            tab.set_stacked_pane_header_provider_plugin_id(
+                self.stacked_pane_header_provider_plugin_id,
+            );
             tab.update_arrow_fonts(should_support_arrow_fonts);
             tab.update_advanced_mouse_actions(advanced_mouse_actions);
             tab.update_mouse_hover_effects(mouse_hover_effects);
@@ -4768,6 +4832,11 @@ pub(crate) fn screen_thread_main(
         .unwrap_or(false); // by default, we try to support this if the terminal supports it and
                            // the program running inside a pane requests it
     let stacked_resize = config_options.stacked_resize.unwrap_or(true);
+    let stacked_pane_header_provider =
+        crate::panes::StackedPaneHeaderProvider::from_config(
+            config_options.stacked_pane_header.as_ref(),
+            &config.plugins,
+        );
     let web_clients_allowed = config_options
         .web_sharing
         .map(|s| s.web_clients_allowed())
@@ -4811,6 +4880,10 @@ pub(crate) fn screen_thread_main(
         layout_dir,
         explicitly_disable_kitty_keyboard_protocol,
         stacked_resize,
+        config_options
+            .stacked_pane_direction
+            .unwrap_or(StackedPaneDirection::Vertical),
+        stacked_pane_header_provider,
         default_editor,
         web_clients_allowed,
         web_sharing,
@@ -7014,6 +7087,7 @@ pub(crate) fn screen_thread_main(
                         run_plugin_or_alias.location_string()
                     )
                 });
+                let run_plugin_or_alias_for_provider = run_plugin_or_alias.clone();
                 let run_plugin = Run::Plugin(run_plugin_or_alias);
 
                 // Set affected pane ID for CLI client output
@@ -7058,8 +7132,13 @@ pub(crate) fn screen_thread_main(
                             new_pane_placement,
                             Some(client_id),
                             None,
-                        )
+                        )?;
+                        Ok::<(), anyhow::Error>(())
                     }, ?);
+                    screen.maybe_set_stacked_pane_header_provider_plugin_id(
+                        &run_plugin_or_alias_for_provider,
+                        plugin_id,
+                    );
                 } else if let Some(active_tab) =
                     tab_index.and_then(|tab_index| screen.tabs.get_mut(&tab_index))
                 {
@@ -7073,6 +7152,10 @@ pub(crate) fn screen_thread_main(
                         None,
                         None,
                     )?;
+                    screen.maybe_set_stacked_pane_header_provider_plugin_id(
+                        &run_plugin_or_alias_for_provider,
+                        plugin_id,
+                    );
                 } else {
                     log::error!("Tab index not found: {:?}", tab_index);
                 }
@@ -7695,12 +7778,14 @@ pub(crate) fn screen_thread_main(
                 rounded_corners,
                 hide_session_name,
                 stacked_resize,
+                stacked_pane_direction,
                 default_editor,
                 advanced_mouse_actions,
                 mouse_hover_effects,
                 visual_bell,
                 focus_follows_mouse,
                 mouse_click_through,
+                stacked_pane_header_provider,
             } => {
                 screen
                     .reconfigure(
@@ -7717,6 +7802,8 @@ pub(crate) fn screen_thread_main(
                         rounded_corners,
                         hide_session_name,
                         stacked_resize,
+                        stacked_pane_direction,
+                        stacked_pane_header_provider,
                         default_editor,
                         advanced_mouse_actions,
                         mouse_hover_effects,
@@ -7726,6 +7813,17 @@ pub(crate) fn screen_thread_main(
                         client_id,
                     )
                     .non_fatal();
+            },
+            ScreenInstruction::UpdateStackedPaneHeader {
+                source_plugin_id,
+                stacked_pane_header,
+            } => {
+                if let Some(tab) = screen.get_tab_by_id_mut(stacked_pane_header.key.tab_id) {
+                    if tab.accepts_stacked_pane_header_update(source_plugin_id) {
+                        tab.update_stacked_pane_header(stacked_pane_header);
+                        screen.render(None).non_fatal();
+                    }
+                }
             },
             ScreenInstruction::RerunCommandPane(terminal_pane_id, completion_tx) => {
                 screen.rerun_command_pane_with_id(terminal_pane_id, completion_tx)

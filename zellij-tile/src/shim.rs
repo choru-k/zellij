@@ -86,6 +86,14 @@ pub fn show_cursor(cursor_position: Option<(usize, usize)>) {
     unsafe { host_run_plugin_command() };
 }
 
+/// Publishes structured stacked pane header content for a specific stack context.
+pub fn set_stacked_pane_header(stacked_pane_header: StackedPaneHeaderUpdate) {
+    let plugin_command = PluginCommand::SetStackedPaneHeader(stacked_pane_header);
+    let protobuf_plugin_command: ProtobufPluginCommand = plugin_command.try_into().unwrap();
+    object_to_stdout(&protobuf_plugin_command.encode_to_vec());
+    unsafe { host_run_plugin_command() };
+}
+
 pub fn request_permission(permissions: &[PermissionType]) {
     let plugin_command = PluginCommand::RequestPluginPermissions(permissions.into());
     let protobuf_plugin_command: ProtobufPluginCommand = plugin_command.try_into().unwrap();

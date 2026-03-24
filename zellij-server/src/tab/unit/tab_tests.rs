@@ -7,7 +7,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use zellij_utils::data::{Direction, NewPanePlacement, Resize, ResizeStrategy, WebSharing};
 use zellij_utils::errors::prelude::*;
-use zellij_utils::input::layout::{SplitDirection, SplitSize, TiledPaneLayout};
+use zellij_utils::input::layout::{RunPluginOrAlias, SplitDirection, SplitSize, TiledPaneLayout};
 use zellij_utils::ipc::IpcReceiverWithContext;
 use zellij_utils::pane_size::{Size, SizeInPixels};
 
@@ -15586,4 +15586,54 @@ pub fn scroll_up_nonexistent_pane_id_does_not_panic() {
     let pane_id = PaneId::Terminal(999);
     assert!(!tab.has_pane_with_pid(&pane_id));
     tab.scroll_up_by_pane_id(pane_id);
+}
+
+#[test]
+pub fn stacked_pane_header_provider_tracks_suppressed_plugin_reloads() {
+    let size = Size {
+        cols: 121,
+        rows: 20,
+    };
+    let mut tab = create_new_tab(size, true);
+    let provider_plugin =
+        RunPluginOrAlias::from_url("file:///path/to/provider.wasm", &None, None, None).unwrap();
+    let provider = crate::panes::StackedPaneHeaderProvider {
+        plugin: provider_plugin.clone(),
+        timeout_ms: 16,
+    };
+
+    tab.update_stacked_pane_header_provider(Some(provider.clone()));
+    assert!(!tab.accepts_stacked_pane_header_update(42));
+
+    tab.set_stacked_pane_header_provider_plugin_id(Some(42));
+    assert!(tab.accepts_stacked_pane_header_update(42));
+
+    tab.set_stacked_pane_header_provider_plugin_id(Some(43));
+    assert!(!tab.accepts_stacked_pane_header_update(42));
+    assert!(tab.accepts_stacked_pane_header_update(43));
+
+    tab.update_stacked_pane_header_provider(Some(provider));
+    assert!(!tab.accepts_stacked_pane_header_update(43));
+}
+
+#[test]
+pub fn stacked_pane_header_provider_update_clears_provider_plugin_id() {
+    let size = Size {
+        cols: 121,
+        rows: 20,
+    };
+    let mut tab = create_new_tab(size, true);
+    let provider_plugin =
+        RunPluginOrAlias::from_url("file:///path/to/provider.wasm", &None, None, None).unwrap();
+    let provider = crate::panes::StackedPaneHeaderProvider {
+        plugin: provider_plugin,
+        timeout_ms: 16,
+    };
+
+    tab.update_stacked_pane_header_provider(Some(provider.clone()));
+    tab.set_stacked_pane_header_provider_plugin_id(Some(42));
+    assert!(tab.accepts_stacked_pane_header_update(42));
+
+    tab.update_stacked_pane_header_provider(Some(provider));
+    assert!(!tab.accepts_stacked_pane_header_update(42));
 }

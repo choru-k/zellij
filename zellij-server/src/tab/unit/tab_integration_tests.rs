@@ -23,6 +23,7 @@ use zellij_utils::input::layout::{
     SwapTiledLayout, TiledPaneLayout,
 };
 use zellij_utils::input::mouse::MouseEvent;
+use zellij_utils::input::options::StackedPaneDirection;
 use zellij_utils::ipc::IpcReceiverWithContext;
 use zellij_utils::pane_size::{Size, SizeInPixels};
 use zellij_utils::position::Position;
@@ -289,6 +290,10 @@ fn create_new_tab(size: Size, default_mode: ModeInfo) -> Tab {
     )
     .unwrap();
     tab
+}
+
+fn enable_horizontal_stacked_panes(tab: &mut Tab) {
+    tab.update_stacked_pane_direction(StackedPaneDirection::Horizontal);
 }
 
 fn create_new_tab_without_pane_frames(size: Size, default_mode: ModeInfo) -> Tab {
@@ -1192,6 +1197,130 @@ fn split_stack_horizontally() {
 }
 
 #[test]
+fn stacked_horizontal_headers_render_expanded_pane_body_content() {
+    let size = Size {
+        cols: 121,
+        rows: 20,
+    };
+    let client_id = 1;
+    let mut tab = create_new_tab(size, ModeInfo::default());
+    let mut output = Output::default();
+
+    enable_horizontal_stacked_panes(&mut tab);
+    for i in 2..4 {
+        let new_pane_id = PaneId::Terminal(i);
+        tab.new_pane(
+            new_pane_id,
+            None,
+            None,
+            false,
+            true,
+            NewPanePlacement::default(),
+            Some(client_id),
+            None,
+        )
+        .unwrap();
+    }
+
+    let _ = tab.focus_pane_with_id(PaneId::Terminal(2), false, false, client_id);
+    tab.handle_pty_bytes(
+        2,
+        Vec::from(
+            "stack-line-1\r\nstack-line-2\r\nstack-line-3\r\nstack-line-4\r\n".as_bytes(),
+        ),
+    )
+    .unwrap();
+
+    // First render before stacking so the regression is caught even when no new PTY bytes arrive
+    // after the pane becomes the expanded pane in the stack.
+    tab.render(&mut output, None).unwrap();
+    output = Output::default();
+
+    // These resizes stack panes 2..4 on the right side, with pane 2 as the expanded pane.
+    tab.resize(client_id, ResizeStrategy::new(Resize::Increase, None))
+        .unwrap();
+    tab.resize(client_id, ResizeStrategy::new(Resize::Increase, None))
+        .unwrap();
+    tab.horizontal_split(PaneId::Terminal(4), None, client_id, None, None)
+        .unwrap();
+
+    tab.render(&mut output, None).unwrap();
+    output = Output::default();
+    tab.render(&mut output, None).unwrap();
+    let snapshot = take_snapshot(
+        output.serialize().unwrap().get(&client_id).unwrap(),
+        size.rows,
+        size.cols,
+        Palette::default(),
+    );
+
+    assert!(
+        snapshot.contains("stack-line-4"),
+        "expanded stacked pane body content should be rendered after the stacked header; snapshot:\n{}",
+        snapshot
+    );
+}
+
+#[test]
+fn stacked_vertical_panes_render_expanded_body_content() {
+    let size = Size { cols: 121, rows: 20 };
+    let client_id = 1;
+    let mut tab = create_new_tab(size, ModeInfo::default());
+    let mut output = Output::default();
+
+    for i in 2..4 {
+        let new_pane_id = PaneId::Terminal(i);
+        tab.new_pane(
+            new_pane_id,
+            None,
+            None,
+            false,
+            true,
+            NewPanePlacement::default(),
+            Some(client_id),
+            None,
+        )
+        .unwrap();
+    }
+
+    let _ = tab.focus_pane_with_id(PaneId::Terminal(2), false, false, client_id);
+    tab.handle_pty_bytes(
+        2,
+        (0..25)
+            .map(|i| {
+                if i == 24 {
+                    format!("vertical-line-{i}")
+                } else {
+                    format!("vertical-line-{i}\r\n")
+                }
+            })
+            .collect::<String>()
+            .into_bytes(),
+    )
+    .unwrap();
+
+    tab.render(&mut output, None).unwrap();
+    output = Output::default();
+
+    tab.resize(client_id, ResizeStrategy::new(Resize::Increase, None))
+        .unwrap();
+    tab.resize(client_id, ResizeStrategy::new(Resize::Increase, None))
+        .unwrap();
+    tab.vertical_split(PaneId::Terminal(4), None, client_id, None, None)
+        .unwrap();
+
+    tab.render(&mut output, None).unwrap();
+
+    let snapshot = take_snapshot(
+        output.serialize().unwrap().get(&client_id).unwrap(),
+        size.rows,
+        size.cols,
+        Palette::default(),
+    );
+    assert!(snapshot.contains("vertical-line-24"), "{snapshot}");
+}
+
+#[test]
 fn render_stacks_without_pane_frames() {
     // this checks various cases and gotchas that have to do with rendering stacked panes when we
     // don't draw frames around panes
@@ -1201,6 +1330,7 @@ fn render_stacks_without_pane_frames() {
     };
     let client_id = 1;
     let mut tab = create_new_tab_without_pane_frames(size, ModeInfo::default());
+    enable_horizontal_stacked_panes(&mut tab);
     let mut output = Output::default();
     for i in 2..4 {
         let new_pane_id_1 = PaneId::Terminal(i);
@@ -7213,6 +7343,7 @@ fn focus_stacked_pane_over_flexible_pane_with_the_mouse() {
         true,
         stacked_resize,
     );
+    enable_horizontal_stacked_panes(&mut tab);
     let new_pane_id_1 = PaneId::Terminal(2);
     let new_pane_id_2 = PaneId::Terminal(3);
     let new_pane_id_3 = PaneId::Terminal(4);
@@ -7327,6 +7458,7 @@ fn focus_stacked_pane_under_flexible_pane_with_the_mouse() {
         true,
         stacked_resize,
     );
+    enable_horizontal_stacked_panes(&mut tab);
     let new_pane_id_1 = PaneId::Terminal(2);
     let new_pane_id_2 = PaneId::Terminal(3);
     let new_pane_id_3 = PaneId::Terminal(4);

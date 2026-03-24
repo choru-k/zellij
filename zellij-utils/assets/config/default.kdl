@@ -504,6 +504,12 @@ load_plugins {
 //
 // stacked_resize false
 
+// How to display stacked panes
+// Possible values: "vertical" or "horizontal"
+// Default: "vertical"
+//
+// stacked_pane_direction "horizontal"
+
 // Whether to show release notes on first version run
 // Default: true
 //

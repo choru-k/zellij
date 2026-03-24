@@ -67,7 +67,7 @@ use zellij_utils::{
         get_mode_info,
         keybinds::Keybinds,
         layout::{FloatingPaneLayout, Layout, PluginAlias, Run, RunPluginOrAlias},
-        options::Options,
+        options::{Options, StackedPaneDirection},
         plugins::PluginAliases,
     },
     ipc::{ClientAttributes, ExitReason, ServerToClientMsg},
@@ -333,6 +333,7 @@ pub(crate) struct SessionMetaData {
     pty_writer_thread: Option<thread::JoinHandle<()>>,
     background_jobs_thread: Option<thread::JoinHandle<()>>,
     config_file_path: Option<PathBuf>,
+    stacked_pane_header_provider: Option<crate::panes::StackedPaneHeaderProvider>,
 }
 
 impl SessionMetaData {
@@ -365,11 +366,15 @@ impl SessionMetaData {
         config_was_written_to_disk: bool,
     ) {
         let mut new_plugin_config = None;
+        let mut new_stacked_pane_header_provider = None;
+        let mut new_stacked_pane_header_provider_client_id = None;
         for (client_id, new_config) in config_changes {
             if new_plugin_config.is_none() {
                 new_plugin_config = Some(new_config.plugins.clone());
             }
 
+            let stacked_pane_header_provider =
+                stacked_pane_header_provider_from_config(&new_config);
             self.default_shell = new_config.options.default_shell.as_ref().map(|shell| {
                 TerminalAction::RunCommand(RunCommand {
                     command: shell.clone(),
@@ -399,6 +404,10 @@ impl SessionMetaData {
                     rounded_corners: new_config.ui.pane_frames.rounded_corners,
                     hide_session_name: new_config.ui.pane_frames.hide_session_name,
                     stacked_resize: new_config.options.stacked_resize.unwrap_or(true),
+                    stacked_pane_direction: new_config
+                        .options
+                        .stacked_pane_direction
+                        .unwrap_or(StackedPaneDirection::Vertical),
                     default_editor: new_config.options.scrollback_editor.clone(),
                     advanced_mouse_actions: new_config
                         .options
@@ -408,6 +417,7 @@ impl SessionMetaData {
                     visual_bell: new_config.options.visual_bell.unwrap_or(true),
                     focus_follows_mouse: new_config.options.focus_follows_mouse.unwrap_or(false),
                     mouse_click_through: new_config.options.mouse_click_through.unwrap_or(false),
+                    stacked_pane_header_provider: stacked_pane_header_provider.clone(),
                 })
                 .unwrap();
             self.senders
@@ -430,6 +440,10 @@ impl SessionMetaData {
                         .pane_synchronized_output_ignore_commands,
                 })
                 .unwrap();
+            if new_stacked_pane_header_provider.is_none() {
+                new_stacked_pane_header_provider = stacked_pane_header_provider.clone();
+                new_stacked_pane_header_provider_client_id = Some(client_id);
+            }
         }
 
         // Detect and notify plugins of configuration changes
@@ -439,6 +453,20 @@ impl SessionMetaData {
                     .send_to_plugin(PluginInstruction::DetectPluginConfigChanges(new_plugins))
                     .unwrap();
             }
+        }
+        let new_stacked_pane_header_provider =
+            new_stacked_pane_header_provider
+                .or_else(|| self.stacked_pane_header_provider.clone());
+        if new_stacked_pane_header_provider != self.stacked_pane_header_provider {
+            if let Some(stacked_pane_header_provider) = &new_stacked_pane_header_provider {
+                if let Some(client_id) = new_stacked_pane_header_provider_client_id {
+                    let _ = self.senders.send_to_plugin(PluginInstruction::LoadBackgroundPlugin(
+                        stacked_pane_header_provider.plugin.clone(),
+                        client_id,
+                    ));
+                }
+            }
+            self.stacked_pane_header_provider = new_stacked_pane_header_provider;
         }
     }
 }
@@ -1730,6 +1758,16 @@ pub fn start_server(mut os_input: Box<dyn ServerOsApi>, socket_path: PathBuf) {
     drop(std::fs::remove_file(&socket_path));
 }
 
+fn stacked_pane_header_provider_from_config(
+    config: &Config,
+    ) -> Option<crate::panes::StackedPaneHeaderProvider> {
+    crate::panes::StackedPaneHeaderProvider::from_config(
+        config.options.stacked_pane_header.as_ref(),
+        &config.plugins,
+    )
+}
+
+
 fn init_session(
     os_input: Box<dyn ServerOsApi>,
     to_server: SenderWithContext<ServerInstruction>,
@@ -1742,6 +1780,7 @@ fn init_session(
     client_id: ClientId,
 ) -> SessionMetaData {
     config.options = config.options.merge(*config_options.clone());
+    let stacked_pane_header_provider = stacked_pane_header_provider_from_config(&config);
 
     let _ = SCROLL_BUFFER_SIZE.set(
         config_options
@@ -1917,6 +1956,13 @@ fn init_session(
             }
         })
         .unwrap();
+    if let Some(stacked_pane_header_provider) = &stacked_pane_header_provider {
+        let _ = to_plugin.send(PluginInstruction::LoadBackgroundPlugin(
+            stacked_pane_header_provider.plugin.clone(),
+            client_id,
+        ));
+    }
+
 
     let pty_writer_thread = thread::Builder::new()
         .name("pty_writer".to_string())
@@ -2011,6 +2057,7 @@ fn init_session(
         web_sharing: config.options.web_sharing.unwrap_or(WebSharing::Off),
         #[cfg(not(feature = "web_server_capability"))]
         web_sharing: WebSharing::Disabled,
+        stacked_pane_header_provider,
         config_file_path: cli_assets.config_file_path,
     }
 }

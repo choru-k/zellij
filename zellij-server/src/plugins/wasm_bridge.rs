@@ -2072,6 +2072,7 @@ fn check_event_permission(
         | Event::CwdChanged(..)
         | Event::AvailableLayoutInfo(..)
         | Event::PluginConfigurationChanged(..)
+        | Event::StackedPaneHeaderContext(..)
         | Event::HighlightClicked { .. }
         | Event::InputReceived => PermissionType::ReadApplicationState,
         Event::WebServerStatus(..) => PermissionType::StartWebServer,

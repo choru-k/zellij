@@ -178,6 +178,9 @@ fn host_run_plugin_command(mut caller: Caller<'_, PluginEnv>) {
                     PluginCommand::Unsubscribe(event_list) => unsubscribe(env, event_list)?,
                     PluginCommand::SetSelectable(selectable) => set_selectable(env, selectable),
                     PluginCommand::ShowCursor(cursor_position) => show_cursor(env, cursor_position),
+                    PluginCommand::SetStackedPaneHeader(stacked_pane_header) => {
+                        set_stacked_pane_header(env, stacked_pane_header)
+                    },
                     PluginCommand::GetPluginIds => get_plugin_ids(env),
                     PluginCommand::GetZellijVersion => get_zellij_version(env),
                     PluginCommand::GenerateRandomName => generate_random_name(env),
@@ -880,6 +883,16 @@ fn show_cursor(env: &PluginEnv, cursor_position: Option<(usize, usize)>) {
             )
         })
         .non_fatal();
+}
+
+fn set_stacked_pane_header(
+    env: &PluginEnv,
+    stacked_pane_header: zellij_utils::data::StackedPaneHeaderUpdate,
+) {
+    let _ = env.senders.send_to_screen(ScreenInstruction::UpdateStackedPaneHeader {
+        source_plugin_id: env.plugin_id,
+        stacked_pane_header,
+    });
 }
 
 fn request_permission(env: &PluginEnv, permissions: Vec<PermissionType>) -> Result<()> {
@@ -5283,6 +5296,7 @@ fn check_command_permission(
         | PluginCommand::HideFloatingPanes { .. }
         | PluginCommand::SetPaneRegexHighlights(..)
         | PluginCommand::ClearPaneHighlights(..) => PermissionType::ChangeApplicationState,
+        | PluginCommand::SetStackedPaneHeader(..) => PermissionType::ChangeApplicationState,
         PluginCommand::UnblockCliPipeInput(..)
         | PluginCommand::BlockCliPipeInput(..)
         | PluginCommand::CliPipeOutput(..) => PermissionType::ReadCliPipes,

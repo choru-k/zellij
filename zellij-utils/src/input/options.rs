@@ -34,6 +34,100 @@ impl FromStr for OnForceClose {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, ArgEnum)]
+pub enum StackedPaneDirection {
+    #[serde(alias = "vertical")]
+    Vertical,
+    #[serde(alias = "horizontal")]
+    Horizontal,
+}
+
+impl Default for StackedPaneDirection {
+    fn default() -> Self {
+        Self::Vertical
+    }
+}
+
+impl FromStr for StackedPaneDirection {
+    type Err = Box<dyn std::error::Error>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "vertical" => Ok(Self::Vertical),
+            "horizontal" => Ok(Self::Horizontal),
+            e => Err(e.to_string().into()),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum StackedPaneHeaderSource {
+    #[serde(alias = "builtin")]
+    Builtin,
+    #[serde(alias = "plugin")]
+    Plugin,
+}
+
+impl Default for StackedPaneHeaderSource {
+    fn default() -> Self {
+        Self::Builtin
+    }
+}
+
+impl FromStr for StackedPaneHeaderSource {
+    type Err = Box<dyn std::error::Error>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "builtin" => Ok(Self::Builtin),
+            "plugin" => Ok(Self::Plugin),
+            e => Err(e.to_string().into()),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum StackedPaneHeaderFallback {
+    #[serde(alias = "builtin")]
+    Builtin,
+}
+
+impl Default for StackedPaneHeaderFallback {
+    fn default() -> Self {
+        Self::Builtin
+    }
+}
+
+impl FromStr for StackedPaneHeaderFallback {
+    type Err = Box<dyn std::error::Error>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "builtin" => Ok(Self::Builtin),
+            e => Err(e.to_string().into()),
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct StackedPaneHeaderConfig {
+    pub source: Option<StackedPaneHeaderSource>,
+    pub plugin: Option<String>,
+    pub fallback: Option<StackedPaneHeaderFallback>,
+    pub timeout_ms: Option<u64>,
+}
+
+impl StackedPaneHeaderConfig {
+    pub fn merge(&self, other: Self) -> Self {
+        StackedPaneHeaderConfig {
+            source: other.source.or(self.source),
+            plugin: other.plugin.or_else(|| self.plugin.clone()),
+            fallback: other.fallback.or(self.fallback),
+            timeout_ms: other.timeout_ms.or(self.timeout_ms),
+        }
+    }
+}
+
 #[derive(Clone, Default, Debug, PartialEq, Deserialize, Serialize, Args)]
 /// Options that can be set either through the config file,
 /// or cli flags - cli flags should take precedence over the config file
@@ -207,6 +301,17 @@ pub struct Options {
     #[serde(default)]
     pub stacked_resize: Option<bool>,
 
+    /// How to display stacked panes (vertical or horizontal)
+    /// default is vertical
+    #[clap(long, arg_enum, hide_possible_values = true, value_parser)]
+    #[serde(default)]
+    pub stacked_pane_direction: Option<StackedPaneDirection>,
+
+    /// Background plugin provider configuration for stacked pane headers
+    #[clap(skip)]
+    #[serde(default)]
+    pub stacked_pane_header: Option<StackedPaneHeaderConfig>,
+
     /// Whether to show startup tips when starting a new session
     /// default is true
     #[clap(long, value_parser)]
@@ -356,6 +461,13 @@ impl Options {
         let web_server = other.web_server.or(self.web_server);
         let web_sharing = other.web_sharing.or(self.web_sharing);
         let stacked_resize = other.stacked_resize.or(self.stacked_resize);
+        let stacked_pane_direction = other.stacked_pane_direction.or(self.stacked_pane_direction);
+        let stacked_pane_header = match (self.stacked_pane_header.as_ref(), other.stacked_pane_header) {
+            (Some(current), Some(other)) => Some(current.merge(other)),
+            (Some(current), None) => Some(current.clone()),
+            (None, Some(other)) => Some(other),
+            (None, None) => None,
+        };
         let show_startup_tips = other.show_startup_tips.or(self.show_startup_tips);
         let show_release_notes = other.show_release_notes.or(self.show_release_notes);
         let advanced_mouse_actions = other.advanced_mouse_actions.or(self.advanced_mouse_actions);
@@ -414,6 +526,8 @@ impl Options {
             web_server,
             web_sharing,
             stacked_resize,
+            stacked_pane_direction,
+            stacked_pane_header,
             show_startup_tips,
             show_release_notes,
             advanced_mouse_actions,
@@ -491,6 +605,8 @@ impl Options {
         let web_server = other.web_server.or(self.web_server);
         let web_sharing = other.web_sharing.or(self.web_sharing);
         let stacked_resize = other.stacked_resize.or(self.stacked_resize);
+        let stacked_pane_direction = other.stacked_pane_direction.or(self.stacked_pane_direction);
+        let stacked_pane_header = self.stacked_pane_header.clone();
         let show_startup_tips = other.show_startup_tips.or(self.show_startup_tips);
         let show_release_notes = other.show_release_notes.or(self.show_release_notes);
         let advanced_mouse_actions = other.advanced_mouse_actions.or(self.advanced_mouse_actions);
@@ -549,6 +665,8 @@ impl Options {
             web_server,
             web_sharing,
             stacked_resize,
+            stacked_pane_direction,
+            stacked_pane_header,
             show_startup_tips,
             show_release_notes,
             advanced_mouse_actions,

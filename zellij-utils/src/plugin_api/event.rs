@@ -92,6 +92,12 @@ impl TryFrom<ProtobufEvent> for Event {
                 },
                 _ => Err("Malformed payload for the PaneUpdate Event"),
             },
+            Some(ProtobufEventType::StackedPaneHeaderContext) => match protobuf_event.payload {
+                Some(ProtobufEventPayload::StackedPaneHeaderContextPayload(payload)) => {
+                    Ok(Event::StackedPaneHeaderContext(payload.try_into()?))
+                },
+                _ => Err("Malformed payload for the StackedPaneHeaderContext Event"),
+            },
             Some(ProtobufEventType::Key) => match protobuf_event.payload {
                 Some(ProtobufEventPayload::KeyPayload(protobuf_key)) => {
                     Ok(Event::Key(protobuf_key.try_into()?))
@@ -605,6 +611,12 @@ impl TryFrom<Event> for ProtobufEvent {
                     })),
                 })
             },
+            Event::StackedPaneHeaderContext(context) => Ok(ProtobufEvent {
+                name: ProtobufEventType::StackedPaneHeaderContext as i32,
+                payload: Some(event::Payload::StackedPaneHeaderContextPayload(
+                    context.try_into()?,
+                )),
+            }),
             Event::Key(key) => Ok(ProtobufEvent {
                 name: ProtobufEventType::Key as i32,
                 payload: Some(event::Payload::KeyPayload(key.try_into()?)),
@@ -1958,6 +1970,7 @@ impl TryFrom<ProtobufEventType> for EventType {
             ProtobufEventType::AvailableLayoutInfo => EventType::AvailableLayoutInfo,
             ProtobufEventType::PluginConfigurationChanged => EventType::PluginConfigurationChanged,
             ProtobufEventType::HighlightClicked => EventType::HighlightClicked,
+            ProtobufEventType::StackedPaneHeaderContext => EventType::StackedPaneHeaderContext,
         })
     }
 }
@@ -2009,6 +2022,7 @@ impl TryFrom<EventType> for ProtobufEventType {
             EventType::AvailableLayoutInfo => ProtobufEventType::AvailableLayoutInfo,
             EventType::PluginConfigurationChanged => ProtobufEventType::PluginConfigurationChanged,
             EventType::HighlightClicked => ProtobufEventType::HighlightClicked,
+            EventType::StackedPaneHeaderContext => ProtobufEventType::StackedPaneHeaderContext,
         })
     }
 }
@@ -2732,6 +2746,131 @@ impl TryFrom<PaneId> for ProtobufPaneId {
         }
     }
 }
+
+impl TryFrom<StackedPaneHeaderKey> for crate::data::StackedPaneHeaderKey {
+    type Error = &'static str;
+
+    fn try_from(protobuf_key: StackedPaneHeaderKey) -> Result<Self, Self::Error> {
+        Ok(crate::data::StackedPaneHeaderKey {
+            client_id: protobuf_key.client_id as ClientId,
+            tab_id: protobuf_key.tab_id as usize,
+            stack_id: protobuf_key.stack_id as usize,
+            revision: protobuf_key.revision,
+        })
+    }
+}
+
+impl TryFrom<crate::data::StackedPaneHeaderKey> for StackedPaneHeaderKey {
+    type Error = &'static str;
+
+    fn try_from(key: crate::data::StackedPaneHeaderKey) -> Result<Self, Self::Error> {
+        Ok(StackedPaneHeaderKey {
+            client_id: key.client_id as u32,
+            tab_id: key.tab_id as u32,
+            stack_id: key.stack_id as u32,
+            revision: key.revision,
+        })
+    }
+}
+
+impl TryFrom<StackedPaneTabContextPayload> for crate::data::StackedPaneTabContext {
+    type Error = &'static str;
+
+    fn try_from(payload: StackedPaneTabContextPayload) -> Result<Self, Self::Error> {
+        Ok(crate::data::StackedPaneTabContext {
+            pane_id: payload
+                .pane_id
+                .ok_or("Missing pane_id in StackedPaneTabContext payload")?
+                .try_into()?,
+            title: payload.title,
+            is_focused: payload.is_focused,
+            is_expanded: payload.is_expanded,
+            is_plugin: payload.is_plugin,
+            exit_status: payload.exit_status,
+            has_bell: payload.has_bell,
+            index: payload.index as usize,
+        })
+    }
+}
+
+impl TryFrom<crate::data::StackedPaneTabContext> for StackedPaneTabContextPayload {
+    type Error = &'static str;
+
+    fn try_from(tab: crate::data::StackedPaneTabContext) -> Result<Self, Self::Error> {
+        Ok(StackedPaneTabContextPayload {
+            pane_id: Some(tab.pane_id.try_into()?),
+            title: tab.title,
+            is_focused: tab.is_focused,
+            is_expanded: tab.is_expanded,
+            is_plugin: tab.is_plugin,
+            exit_status: tab.exit_status,
+            has_bell: tab.has_bell,
+            index: tab.index as u32,
+        })
+    }
+}
+
+impl TryFrom<StackedPaneHeaderContextPayload> for crate::data::StackedPaneHeaderContext {
+    type Error = &'static str;
+
+    fn try_from(payload: StackedPaneHeaderContextPayload) -> Result<Self, Self::Error> {
+        let key = payload
+            .key
+            .ok_or("Missing key in StackedPaneHeaderContext payload")?
+            .try_into()?;
+        let direction = match StackedPaneHeaderDirection::from_i32(payload.direction) {
+            Some(StackedPaneHeaderDirection::Vertical) => {
+                crate::input::options::StackedPaneDirection::Vertical
+            },
+            Some(StackedPaneHeaderDirection::Horizontal) => {
+                crate::input::options::StackedPaneDirection::Horizontal
+            },
+            None => return Err("Invalid StackedPaneHeaderDirection value"),
+        };
+        let panes = payload
+            .panes
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(crate::data::StackedPaneHeaderContext {
+            key,
+            direction,
+            available_width: payload.available_width as usize,
+            pane_frames_enabled: payload.pane_frames_enabled,
+            panes,
+        })
+    }
+}
+
+impl TryFrom<crate::data::StackedPaneHeaderContext> for StackedPaneHeaderContextPayload {
+    type Error = &'static str;
+
+    fn try_from(context: crate::data::StackedPaneHeaderContext) -> Result<Self, Self::Error> {
+        let direction = match context.direction {
+            crate::input::options::StackedPaneDirection::Vertical => {
+                StackedPaneHeaderDirection::Vertical as i32
+            },
+            crate::input::options::StackedPaneDirection::Horizontal => {
+                StackedPaneHeaderDirection::Horizontal as i32
+            },
+        };
+        let panes = context
+            .panes
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(StackedPaneHeaderContextPayload {
+            key: Some(context.key.try_into()?),
+            direction,
+            available_width: context.available_width as u32,
+            pane_frames_enabled: context.pane_frames_enabled,
+            panes,
+        })
+    }
+}
+
 
 impl Into<ProtobufWebSharing> for WebSharing {
     fn into(self) -> ProtobufWebSharing {

@@ -5,6 +5,7 @@ use crate::input::keybinds::Keybinds;
 use crate::input::layout::{
     Layout, PercentOrFixed, Run, RunPlugin, RunPluginLocation, RunPluginOrAlias,
 };
+use crate::input::options::StackedPaneDirection;
 use crate::pane_size::PaneGeom;
 use crate::position::Position;
 use crate::shared::{colors as default_colors, eightbit_to_rgb};
@@ -935,6 +936,90 @@ impl From<Metadata> for FileMetadata {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct StackedPaneHeaderKey {
+    pub client_id: ClientId,
+    pub tab_id: usize,
+    pub stack_id: usize,
+    pub revision: u64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct StackedPaneHeaderContext {
+    pub key: StackedPaneHeaderKey,
+    pub direction: StackedPaneDirection,
+    pub available_width: usize,
+    pub pane_frames_enabled: bool,
+    pub panes: Vec<StackedPaneTabContext>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct StackedPaneTabContext {
+    pub pane_id: PaneId,
+    pub title: String,
+    pub is_focused: bool,
+    pub is_expanded: bool,
+    pub is_plugin: bool,
+    pub exit_status: Option<i32>,
+    pub has_bell: bool,
+    pub index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StackedPaneHeaderUpdate {
+    pub key: StackedPaneHeaderKey,
+    pub spec: StackedPaneHeaderSpec,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StackedPaneHeaderSpec {
+    pub alignment: HeaderAlignment,
+    pub items: Vec<StackedPaneHeaderItem>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HeaderAlignment {
+    Left,
+    Center,
+    Right,
+}
+
+impl Default for HeaderAlignment {
+    fn default() -> Self {
+        Self::Left
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StackedPaneHeaderItemStyle {
+    Default,
+    Selected,
+    Warning,
+    Success,
+    Muted,
+}
+
+impl Default for StackedPaneHeaderItemStyle {
+    fn default() -> Self {
+        Self::Default
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StackedPaneHeaderItem {
+    pub pane_id: Option<PaneId>,
+    pub text: String,
+    pub style: StackedPaneHeaderItemStyle,
+    pub action: Option<StackedPaneHeaderAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StackedPaneHeaderAction {
+    FocusPane(PaneId),
+    ClosePane(PaneId),
+    ExpandPane(PaneId),
+}
+
+
 /// These events can be subscribed to with subscribe method exported by `zellij-tile`.
 /// Once subscribed to, they will trigger the `update` method of the `ZellijPlugin` trait.
 #[derive(Debug, Clone, PartialEq, EnumDiscriminants, Display, Serialize, Deserialize)]
@@ -945,6 +1030,7 @@ pub enum Event {
     ModeUpdate(ModeInfo),
     TabUpdate(Vec<TabInfo>),
     PaneUpdate(PaneManifest),
+    StackedPaneHeaderContext(StackedPaneHeaderContext),
     /// A key was pressed while the user is focused on this plugin's pane
     Key(KeyWithModifier),
     /// A mouse event happened while the user is focused on this plugin's pane
@@ -3301,6 +3387,7 @@ pub enum PluginCommand {
     Unsubscribe(HashSet<EventType>),
     SetSelectable(bool),
     ShowCursor(Option<(usize, usize)>),
+    SetStackedPaneHeader(StackedPaneHeaderUpdate),
     GetPluginIds,
     GetZellijVersion,
     OpenFile(FileToOpen, Context),
