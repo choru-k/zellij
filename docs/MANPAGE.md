@@ -183,6 +183,7 @@ ACTIONS
 * __UndoRenameTab__ - undoes the changed tab name and reverts to the previous name.
 * __UndoRenamePane__ - undoes the changed pane name and reverts to the previous name.
 * __SetPaneColor__ - sets the default foreground and/or background color of a pane.
+* __SetPaneBorderStyle__ - sets or resets the border foreground and/or background style of a pane.
 
 
 KEYS

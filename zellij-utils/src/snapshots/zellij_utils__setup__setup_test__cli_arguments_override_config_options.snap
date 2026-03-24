@@ -51,5 +51,6 @@ Options {
     web_server_key: None,
     enforce_https_for_localhost: None,
     post_command_discovery_hook: None,
+    pane_synchronized_output_ignore_commands: None,
     client_async_worker_tasks: None,
 }

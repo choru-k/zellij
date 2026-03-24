@@ -705,6 +705,13 @@ impl From<crate::input::options::Options>
                 .map(|p| p.to_string_lossy().to_string()),
             enforce_https_for_localhost: options.enforce_https_for_localhost,
             post_command_discovery_hook: options.post_command_discovery_hook,
+            pane_synchronized_output_ignore_commands: options
+                .pane_synchronized_output_ignore_commands
+                .clone()
+                .unwrap_or_default(),
+            pane_synchronized_output_ignore_commands_is_set: options
+                .pane_synchronized_output_ignore_commands
+                .map(|_| true),
             client_async_worker_tasks: options.client_async_worker_tasks.map(|v| v as u64),
             visual_bell: options.visual_bell,
             focus_follows_mouse: options.focus_follows_mouse,
@@ -853,6 +860,14 @@ impl TryFrom<crate::client_server_contract::client_server_contract::Options>
             web_server_key: options.web_server_key.map(std::path::PathBuf::from),
             enforce_https_for_localhost: options.enforce_https_for_localhost,
             post_command_discovery_hook: options.post_command_discovery_hook,
+            pane_synchronized_output_ignore_commands: if options
+                .pane_synchronized_output_ignore_commands_is_set
+                .unwrap_or(false)
+            {
+                Some(options.pane_synchronized_output_ignore_commands)
+            } else {
+                None
+            },
             client_async_worker_tasks: options.client_async_worker_tasks.map(|v| v as usize),
             visual_bell: options.visual_bell,
             focus_follows_mouse: options.focus_follows_mouse,
@@ -971,6 +986,7 @@ impl From<crate::input::actions::Action>
             SearchToggleOptionAction,
             SetPaneBorderlessAction,
             SetPaneColorAction,
+            SetPaneBorderStyleAction,
             ShowFloatingPanesAction,
             SkipConfirmAction,
             StackPanesAction,
@@ -1661,6 +1677,13 @@ impl From<crate::input::actions::Action>
             },
             crate::input::actions::Action::SetPaneColor { pane_id, fg, bg } => {
                 ActionType::SetPaneColor(SetPaneColorAction {
+                    pane_id: Some(pane_id.into()),
+                    fg,
+                    bg,
+                })
+            },
+            crate::input::actions::Action::SetPaneBorderStyle { pane_id, fg, bg } => {
+                ActionType::SetPaneBorderStyle(SetPaneBorderStyleAction {
                     pane_id: Some(pane_id.into()),
                     fg,
                     bg,
@@ -2506,6 +2529,16 @@ impl TryFrom<crate::client_server_contract::client_server_contract::Action>
                         .try_into()?,
                     fg: set_pane_color_action.fg,
                     bg: set_pane_color_action.bg,
+                })
+            },
+            ActionType::SetPaneBorderStyle(set_pane_border_style_action) => {
+                Ok(crate::input::actions::Action::SetPaneBorderStyle {
+                    pane_id: set_pane_border_style_action
+                        .pane_id
+                        .ok_or_else(|| anyhow!("SetPaneBorderStyle missing pane_id"))?
+                        .try_into()?,
+                    fg: set_pane_border_style_action.fg,
+                    bg: set_pane_border_style_action.bg,
                 })
             },
             // Pane-targeting CLI-only variants

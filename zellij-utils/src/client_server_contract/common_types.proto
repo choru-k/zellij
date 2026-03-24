@@ -244,6 +244,7 @@ message Action {
     ShowFloatingPanesAction show_floating_panes = 106;
     HideFloatingPanesAction hide_floating_panes = 107;
     SetPaneColorAction set_pane_color = 108;
+    SetPaneBorderStyleAction set_pane_border_style = 135;
     PasteAction paste = 109;
     // Pane-targeting
     ScrollUpByPaneIdAction scroll_up_by_pane_id = 110;
@@ -695,6 +696,13 @@ message SetPaneColorAction {
   optional string fg = 2;
   optional string bg = 3;
 }
+
+message SetPaneBorderStyleAction {
+  PaneId pane_id = 1;
+  optional string fg = 2;
+  optional string bg = 3;
+}
+
 
 // Supporting enums and messages
 enum InputMode {
@@ -1150,8 +1158,10 @@ message Options {
   optional bool visual_bell = 43;
   optional bool focus_follows_mouse = 44;
   optional bool mouse_click_through = 45;
-  optional StackDirection stacked_pane_direction = 46;
-  optional StackedPaneHeaderConfig stacked_pane_header = 47;
+  repeated string pane_synchronized_output_ignore_commands = 46;
+  optional bool pane_synchronized_output_ignore_commands_is_set = 47;
+  optional StackDirection stacked_pane_direction = 48;
+  optional StackedPaneHeaderConfig stacked_pane_header = 49;
 }
 
 message StackedPaneHeaderConfig {

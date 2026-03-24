@@ -37,6 +37,20 @@ fn server_client_contract() {
     test_server_messages();
 }
 
+#[test]
+fn options_proto_roundtrip_preserves_explicit_empty_sync_ignore_list() {
+    use crate::client_server_contract::client_server_contract::Options as ProtoOptions;
+
+    let original = Options {
+        pane_synchronized_output_ignore_commands: Some(vec![]),
+        ..Default::default()
+    };
+    let proto: ProtoOptions = original.clone().into();
+    let roundtripped = Options::try_from(proto).unwrap();
+
+    assert_eq!(roundtripped, original);
+}
+
 fn test_client_messages() {
     let empty_context = BTreeMap::new();
     let mut demo_context = BTreeMap::new();
@@ -481,6 +495,10 @@ fn test_client_messages() {
                 web_server_key: Some(PathBuf::from("web_server_key")),
                 enforce_https_for_localhost: Some(true),
                 post_command_discovery_hook: Some("post_command_discovery_hook".to_owned()),
+                pane_synchronized_output_ignore_commands: Some(vec![
+                    "pi".to_owned(),
+                    "codex".to_owned(),
+                ]),
                 client_async_worker_tasks: Some(16),
                 mouse_hover_effects: Some(false),
                 visual_bell: Some(true),
@@ -2776,6 +2794,26 @@ fn test_client_messages() {
             pane_id: PaneId::Plugin(2),
             fg: None,
             bg: None,
+        },
+        terminal_id: Some(1),
+        client_id: Some(100),
+        is_cli_client: true,
+    });
+    test_client_roundtrip!(ClientToServerMsg::Action {
+        action: Action::SetPaneBorderStyle {
+            pane_id: PaneId::Terminal(0),
+            fg: Some("#00e000".to_owned()),
+            bg: Some("#001a3a".to_owned()),
+        },
+        terminal_id: Some(1),
+        client_id: Some(100),
+        is_cli_client: true,
+    });
+    test_client_roundtrip!(ClientToServerMsg::Action {
+        action: Action::SetPaneBorderStyle {
+            pane_id: PaneId::Plugin(2),
+            fg: None,
+            bg: Some("#001a3a".to_owned()),
         },
         terminal_id: Some(1),
         client_id: Some(100),

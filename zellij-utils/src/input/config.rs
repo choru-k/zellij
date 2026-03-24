@@ -679,6 +679,7 @@ mod config_test {
                 fallback "builtin"
                 timeout_ms 24
             }
+            pane_synchronized_output_ignore_commands "pi" "codex"
         "#;
         let config = Config::from_kdl(config_contents, None).unwrap();
         assert_eq!(
@@ -790,6 +791,11 @@ mod config_test {
                 timeout_ms: Some(24),
             }),
             "Stacked pane header config set in config"
+        );
+        assert_eq!(
+            config.options.pane_synchronized_output_ignore_commands,
+            Some(vec![String::from("pi"), String::from("codex")]),
+            "Option set in config"
         );
     }
 

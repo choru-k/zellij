@@ -1,5 +1,6 @@
 use crate::panes::AnsiCode;
 use std::convert::TryFrom;
+use zellij_utils::data::PaletteColor;
 
 pub fn parse_sgr_color(params: &mut dyn Iterator<Item = u16>) -> Option<AnsiCode> {
     match params.next() {
@@ -21,6 +22,14 @@ pub fn xparse_color(color: &[u8]) -> Option<AnsiCode> {
         parse_rgb_color(&color[4..])
     } else {
         None
+    }
+}
+
+pub fn xparse_palette_color(color: &str) -> Option<PaletteColor> {
+    match xparse_color(color.as_bytes()) {
+        Some(AnsiCode::RgbCode((r, g, b))) => Some(PaletteColor::Rgb((r, g, b))),
+        Some(AnsiCode::ColorIndex(color_index)) => Some(PaletteColor::EightBit(color_index)),
+        _ => None,
     }
 }
 

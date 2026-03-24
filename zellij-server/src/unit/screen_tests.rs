@@ -116,6 +116,51 @@ fn take_snapshots_and_cursor_coordinates_from_render_events<'a>(
     snapshots
 }
 
+fn grid_after_render_events<'a>(
+    all_events: impl Iterator<Item = &'a ServerInstruction>,
+    screen_size: Size,
+) -> Grid {
+    let sixel_image_store = Rc::new(RefCell::new(SixelImageStore::default()));
+    let terminal_emulator_color_codes = Rc::new(RefCell::new(HashMap::new()));
+    let character_cell_size = Rc::new(RefCell::new(Some(SizeInPixels {
+        width: 8,
+        height: 21,
+    })));
+    let debug = false;
+    let arrow_fonts = true;
+    let styled_underlines = true;
+    let osc8_hyperlinks = true;
+    let explicitly_disable_kitty_keyboard_protocol = false;
+    let mut grid = Grid::new(
+        screen_size.rows,
+        screen_size.cols,
+        Rc::new(RefCell::new(Palette::default())),
+        terminal_emulator_color_codes,
+        Rc::new(RefCell::new(LinkHandler::new())),
+        character_cell_size,
+        sixel_image_store,
+        Style::default(),
+        debug,
+        arrow_fonts,
+        styled_underlines,
+        osc8_hyperlinks,
+        explicitly_disable_kitty_keyboard_protocol,
+    );
+    let mut vte_parser = vte::Parser::new();
+
+    for server_instruction in all_events {
+        if let ServerInstruction::Render(Some(output)) = server_instruction {
+            if let Some(raw_snapshot) = output.get(&1) {
+                for &byte in raw_snapshot.as_bytes() {
+                    vte_parser.advance(&mut grid, byte);
+                }
+            }
+        }
+    }
+
+    grid
+}
+
 fn send_cli_action_to_server(
     session_metadata: &SessionMetaData,
     cli_action: CliAction,
@@ -2375,6 +2420,79 @@ pub fn send_cli_resize_action_to_screen() {
         assert_snapshot!(format!("{}", snapshot));
     }
     assert_snapshot!(format!("{}", snapshot_count));
+}
+
+#[test]
+pub fn send_cli_set_pane_border_style_action_renders_background_on_targeted_tiled_pane() {
+    let size = Size { cols: 80, rows: 20 };
+    let client_id = 10; // fake client id should not appear in the screen's state
+    let mut initial_layout = TiledPaneLayout::default();
+    initial_layout.children_split_direction = SplitDirection::Vertical;
+    initial_layout.children = vec![TiledPaneLayout::default(), TiledPaneLayout::default()];
+    let mut mock_screen = MockScreen::new(size);
+    let session_metadata = mock_screen.clone_session_metadata();
+    let screen_thread = mock_screen.run(Some(initial_layout), vec![]);
+    let received_server_instructions = Arc::new(Mutex::new(vec![]));
+    let server_receiver = mock_screen.server_receiver.take().unwrap();
+    let server_instruction = log_actions_in_thread!(
+        received_server_instructions,
+        ServerInstruction::KillSession,
+        server_receiver
+    );
+
+    std::thread::sleep(std::time::Duration::from_millis(100)); // give time for the initial render
+    let instruction_count_before_action = received_server_instructions.lock().unwrap().len();
+
+    let set_border_style_action = CliAction::SetPaneBorderStyle {
+        pane_id: Some("terminal_1".to_owned()),
+        fg: None,
+        bg: Some("#ff00ff".to_owned()),
+        reset: false,
+    };
+    send_cli_action_to_server(&session_metadata, set_border_style_action, client_id);
+    std::thread::sleep(std::time::Duration::from_millis(100)); // give time for the async render
+    mock_screen.teardown(vec![server_instruction, screen_thread]);
+
+    let received_server_instructions = received_server_instructions.lock().unwrap();
+    let render_outputs_after_action: Vec<String> = received_server_instructions
+        .iter()
+        .skip(instruction_count_before_action)
+        .filter_map(|server_instruction| match server_instruction {
+            ServerInstruction::Render(Some(output)) => output.get(&1).cloned(),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        !render_outputs_after_action.is_empty(),
+        "expected render output after setting pane border style, got none"
+    );
+    let final_grid = grid_after_render_events(received_server_instructions.iter(), size);
+    let magenta_background = Some(crate::panes::terminal_character::AnsiCode::RgbCode((255, 0, 255)));
+    let split_column = size.cols as usize / 2;
+    let pane_rows = final_grid.viewport.iter().enumerate().skip(1); // skip the tab/status line
+    let magenta_cells_in_target_pane = pane_rows
+        .clone()
+        .flat_map(|(_y, row)| row.columns.iter().enumerate().skip(split_column))
+        .filter(|(_x, terminal_character)| terminal_character.styles.background == magenta_background)
+        .count();
+    let magenta_cells_in_non_target_pane = final_grid
+        .viewport
+        .iter()
+        .enumerate()
+        .skip(1)
+        .flat_map(|(_y, row)| row.columns.iter().enumerate().take(split_column))
+        .filter(|(_x, terminal_character)| terminal_character.styles.background == magenta_background)
+        .count();
+
+    assert!(
+        magenta_cells_in_target_pane > 0,
+        "expected the targeted pane region to contain magenta border/title-row background"
+    );
+    assert_eq!(
+        magenta_cells_in_non_target_pane, 0,
+        "expected the non-target pane region to keep its default background"
+    );
 }
 
 #[test]
