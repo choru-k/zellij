@@ -2343,18 +2343,30 @@ pub fn send_cli_set_pane_border_style_action_renders_background_on_targeted_tile
         "expected render output after setting pane border style, got none"
     );
     let final_grid = grid_after_render_events(received_server_instructions.iter(), size);
-    let has_magenta_background = final_grid
+    let magenta_background = Some(crate::panes::terminal_character::AnsiCode::RgbCode((255, 0, 255)));
+    let split_column = size.cols as usize / 2;
+    let pane_rows = final_grid.viewport.iter().enumerate().skip(1); // skip the tab/status line
+    let magenta_cells_in_target_pane = pane_rows
+        .clone()
+        .flat_map(|(_y, row)| row.columns.iter().enumerate().skip(split_column))
+        .filter(|(_x, terminal_character)| terminal_character.styles.background == magenta_background)
+        .count();
+    let magenta_cells_in_non_target_pane = final_grid
         .viewport
         .iter()
-        .flat_map(|row| row.columns.iter())
-        .any(|terminal_character| {
-            terminal_character.styles.background
-                == Some(crate::panes::terminal_character::AnsiCode::RgbCode((255, 0, 255)))
-        });
+        .enumerate()
+        .skip(1)
+        .flat_map(|(_y, row)| row.columns.iter().enumerate().take(split_column))
+        .filter(|(_x, terminal_character)| terminal_character.styles.background == magenta_background)
+        .count();
 
     assert!(
-        has_magenta_background,
-        "expected the final rendered grid to contain a magenta border/title-row background"
+        magenta_cells_in_target_pane > 0,
+        "expected the targeted pane region to contain magenta border/title-row background"
+    );
+    assert_eq!(
+        magenta_cells_in_non_target_pane, 0,
+        "expected the non-target pane region to keep its default background"
     );
 }
 
