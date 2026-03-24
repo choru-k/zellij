@@ -76,15 +76,37 @@ The main fork-specific changes so far are:
 
 If you want the standard upstream experience, upstream Zellij remains the canonical project. This fork is for users who specifically want the workflow changes above on top of the current upstream base.
 
+### Versioning and Homebrew naming
+
+For fork releases, use an upstream-based version plus a fork revision, for example:
+- `v0.44.0-choru.1`
+- `v0.44.0-choru.2`
+- `v0.45.0-choru.1`
+
+This keeps the upstream base version visible while still giving the fork a clear release sequence.
+
+For Homebrew, prefer a distinct formula name such as `zellij-choru` rather than reusing plain `zellij`. That makes it obvious that users are installing the fork, not upstream Zellij.
+
 ## How do I install it?
 If you want the fork-specific features described above, install from this fork rather than the upstream release artifacts.
 
+### Homebrew
+This branch includes a tap-ready formula at `Formula/zellij-choru.rb`. Once the repo is tapped, you can install the fork with:
+```bash
+brew tap choru-k/zellij https://github.com/choru-k/zellij
+brew install zellij-choru
+```
+
+This formula intentionally uses a fork-specific formula name and should conflict with upstream `zellij`, because both install the same `zellij` executable.
+
+### Build from source
 The most direct option is to build from this repository:
 ```
 cargo xtask build
 ./target/debug/zellij
 ```
 
+### Cargo install
 You can also install directly with Cargo from the fork:
 ```
 cargo install --locked --git https://github.com/choru-k/zellij zellij
