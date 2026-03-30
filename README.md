@@ -67,7 +67,7 @@ The main fork-specific changes so far are:
 2. **Plugin-backed stacked pane headers** ([PR #2](https://github.com/choru-k/zellij/pull/2))
    - Adds configurable stacked pane direction, including left-aligned horizontal stacked tabs.
    - Adds a plugin-backed stacked pane header provider, allowing a background plugin to supply structured header content, styling, alignment, and actions.
-   - Includes the supporting interaction model: header hit-testing, mouse actions, caching, builtin fallback behavior, and provider lifecycle fixes across tabs/reloads.
+   - Includes the supporting interaction model: header hit-testing, mouse actions, caching, builtin fallback behavior, and provider lifecycle fixes across tabs and reloads.
 
 3. **Richer pane border styling** ([PR #3](https://github.com/choru-k/zellij/pull/3))
    - Replaces the old pane border color action with a more complete pane border style action that supports `--fg`, `--bg`, and `--reset`.
@@ -78,12 +78,12 @@ If you want the standard upstream experience, upstream Zellij remains the canoni
 
 ### Versioning and Homebrew naming
 
-For fork releases, use an upstream-based version plus a fork revision, for example:
+This fork currently tracks upstream `0.44.0` plus the fork-specific changes above.
+
+Until the fork starts publishing tagged releases, installation examples in this README pin an explicit source revision instead of a floating fork release name. When fork releases are tagged, prefer an upstream-based version plus a fork revision, for example:
 - `v0.44.0-choru.1`
 - `v0.44.0-choru.2`
 - `v0.45.0-choru.1`
-
-This keeps the upstream base version visible while still giving the fork a clear release sequence.
 
 For Homebrew, prefer a distinct formula name such as `zellij-choru` rather than reusing plain `zellij`. That makes it obvious that users are installing the fork, not upstream Zellij.
 
@@ -91,35 +91,41 @@ For Homebrew, prefer a distinct formula name such as `zellij-choru` rather than 
 If you want the fork-specific features described above, install from this fork rather than the upstream release artifacts.
 
 ### Homebrew
-This branch includes a tap-ready formula at `Formula/zellij-choru.rb`. Once the repo is tapped, you can install the fork with:
+This repo includes a tap-ready formula at `Formula/zellij-choru.rb`. Once the repo is tapped, you can install the fork with:
 ```bash
 brew tap choru-k/zellij https://github.com/choru-k/zellij
 brew install zellij-choru
 ```
 
-This formula intentionally uses a fork-specific formula name and should conflict with upstream `zellij`, because both install the same `zellij` executable.
+This formula intentionally uses a fork-specific formula name and conflicts with upstream `zellij`, because both install the same `zellij` executable.
 
 ### Build from source
 If you want to install the fork from source yourself, build it and then place the resulting binary somewhere on your `PATH`:
 ```bash
 cargo xtask build
-cp ./target/debug/zellij ~/.local/bin/zellij
+cp ./target/dev-opt/zellij ~/.local/bin/zellij
 ```
 
 If you just want to try the fork without installing it system-wide, you can run the built binary directly:
 ```bash
-./target/debug/zellij
+./target/dev-opt/zellij
 ```
 
 ### Cargo install
-You can also install directly with Cargo from the fork:
-```
-cargo install --locked --git https://github.com/choru-k/zellij zellij
+If you want Cargo to install a stable fork revision, pin it to an explicit commit until fork tags exist:
+```bash
+cargo install --locked --git https://github.com/choru-k/zellij --rev 578fb91a096c37fb6dc249d446cda44c12c67f47 zellij
 ```
 
-If you want the standard upstream experience instead, the easiest way to install Zellij is through a [package for your OS](./docs/THIRD_PARTY_INSTALL.md). If one is not available for your OS, you can use the [latest upstream release](https://github.com/zellij-org/zellij/releases/latest).
+If you prefer to track the moving `main` branch instead, use:
+```bash
+cargo install --locked --git https://github.com/choru-k/zellij --branch main zellij
+```
 
-#### Try Zellij without installing
+The `main` branch is pre-release code and may be broken between commits.
+
+#### Try upstream Zellij without installing
+The quick-launch script below downloads the latest upstream Zellij release from `zellij-org/zellij`. It does not include the fork-specific changes described above.
 
 bash/zsh:
 ```bash
@@ -133,7 +139,7 @@ bash -c 'bash <(curl -L https://zellij.dev/launch)'
 #### Installing from `main`
 Installing Zellij from the `main` branch is not recommended. This branch represents pre-release code, is constantly being worked on and may contain broken or unusable features. In addition, using it may corrupt the cache for future versions, forcing users to clear it before they can use the officially released version.
 
-That being said - no-one will stop you from using it (and bug reports involving new features are greatly appreciated), but please consider using the latest release instead as detailed at the top of this section.
+That being said - no-one will stop you from using it (and bug reports involving new features are greatly appreciated), but please consider using a pinned revision or a tagged release once fork releases are published.
 
 ## How do I start a development environment?
 

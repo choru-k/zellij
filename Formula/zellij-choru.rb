@@ -2,7 +2,7 @@ class ZellijChoru < Formula
   desc "Zellij fork with agent-focused streaming, stacked-header, and pane-style improvements"
   homepage "https://github.com/choru-k/zellij"
   url "https://github.com/choru-k/zellij/archive/578fb91a096c37fb6dc249d446cda44c12c67f47.tar.gz"
-  version "0.44.0-choru.1"
+  version "0.44.0"
   sha256 "18d811e986385fbb34a71c10316abdbba84c3c8b64e81f75b1c03b5add20c928"
   license "MIT"
   head "https://github.com/choru-k/zellij.git", branch: "main"
@@ -28,6 +28,6 @@ class ZellijChoru < Formula
   test do
     assert_match "pane_synchronized_output_ignore_commands",
                  shell_output("#{bin}/zellij setup --dump-config")
-    assert_match "zellij 0.44.0", shell_output("#{bin}/zellij --version")
+    assert_match "zellij #{version}", shell_output("#{bin}/zellij --version")
   end
 end
