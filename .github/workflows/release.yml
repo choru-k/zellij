@@ -1,29 +1,57 @@
 name: Release
+run-name: Release ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - "v*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing tag to publish, for example v0.44.0-choru.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  create-release:
+  ensure-release:
     runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
-      - name: create_release
-        id: create_release
-        uses: actions/create-release@v1
+      - name: Validate release tag
+        run: |
+          case "$RELEASE_TAG" in
+            v[0-9]*.[0-9]*.[0-9]*|v[0-9]*.[0-9]*.[0-9]*-*) ;;
+            *)
+              echo "Unexpected release tag: $RELEASE_TAG"
+              exit 1
+              ;;
+          esac
+
+      - name: Ensure GitHub release exists
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && '' || github.ref }}
-          release_name: Release ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
-          draft: ${{ github.event_name == 'workflow_dispatch' }}
-          prerelease: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists."
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "Release $RELEASE_TAG" \
+              --generate-notes
+          fi
 
   build-release-normal:
-    needs: create-release
+    needs: ensure-release
     name: build-release-normal
     runs-on: ${{ matrix.os }}
     env:
@@ -53,27 +81,10 @@ jobs:
             os: windows-latest
             target: x86_64-pc-windows-msvc
     steps:
-      - name: Set release tag (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          if [ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' ]; then
-            echo "RELEASE_TAG=main" >> "$GITHUB_ENV"
-          else
-            echo "RELEASE_TAG=${GITHUB_REF#refs/tags/}"  >> "$GITHUB_ENV"
-          fi
-
-      - name: Set release tag (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
-            echo "RELEASE_TAG=main" >> $env:GITHUB_ENV
-          } else {
-            $tag = $env:GITHUB_REF -replace '^refs/tags/', ''
-            echo "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
-          }
-
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v2
@@ -142,27 +153,30 @@ jobs:
           "$hash  target/release/zellij.exe" | Out-File -Encoding ascii $checksum_name
           echo "checksum_name=$checksum_name" >> $env:GITHUB_OUTPUT
 
-      - name: Upload release archive
-        uses: actions/upload-release-asset@v1.0.2
+      - name: Upload release archive (Unix)
+        if: runner.os != 'Windows'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ steps.make-artifact-unix.outputs.asset_name || steps.make-artifact-windows.outputs.asset_name }}
-          asset_name: ${{ runner.os == 'Windows' && format('zellij-{0}.zip', matrix.target) || format('zellij-{0}.tar.gz', matrix.target) }}
-          asset_content_type: application/octet-stream
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" "${{ steps.make-artifact-unix.outputs.asset_name }}" --repo "$GITHUB_REPOSITORY" --clobber
 
-      - name: Upload checksum
-        uses: actions/upload-release-asset@v1.0.2
+      - name: Upload release archive (Windows)
+        if: runner.os == 'Windows'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ steps.make-checksum-unix.outputs.checksum_name || steps.make-checksum-windows.outputs.checksum_name }}
-          asset_name: zellij-${{matrix.target}}.sha256sum
-          asset_content_type: text/plain
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$env:RELEASE_TAG" "${{ steps.make-artifact-windows.outputs.asset_name }}" --repo "$env:GITHUB_REPOSITORY" --clobber
 
-      # ===== Windows MSI installer =====
+      - name: Upload checksum (Unix)
+        if: runner.os != 'Windows'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" "${{ steps.make-checksum-unix.outputs.checksum_name }}" --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Upload checksum (Windows)
+        if: runner.os == 'Windows'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$env:RELEASE_TAG" "${{ steps.make-checksum-windows.outputs.checksum_name }}" --repo "$env:GITHUB_REPOSITORY" --clobber
+
       - name: Install WiX v6
         if: runner.os == 'Windows'
         run: dotnet tool install --global wix
@@ -180,7 +194,7 @@ jobs:
             -d Version=$version `
             -arch x64 `
             -ext WixToolset.UI.wixext `
-            -o target\wix\zellij-x86_64-pc-windows-msvc-installer.msi
+            -o target\wix\zellij-${{ matrix.target }}-installer.msi
 
       - name: Create MSI checksum
         if: runner.os == 'Windows'
@@ -193,28 +207,18 @@ jobs:
 
       - name: Upload MSI installer
         if: runner.os == 'Windows'
-        uses: actions/upload-release-asset@v1.0.2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: target\wix\zellij-${{ matrix.target }}-installer.msi
-          asset_name: zellij-${{ matrix.target }}-installer.msi
-          asset_content_type: application/octet-stream
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$env:RELEASE_TAG" "target\wix\zellij-${{ matrix.target }}-installer.msi" --repo "$env:GITHUB_REPOSITORY" --clobber
 
       - name: Upload MSI checksum
         if: runner.os == 'Windows'
-        uses: actions/upload-release-asset@v1.0.2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ steps.make-checksum-msi.outputs.checksum_name }}
-          asset_name: zellij-${{ matrix.target }}-installer.sha256sum
-          asset_content_type: text/plain
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$env:RELEASE_TAG" "${{ steps.make-checksum-msi.outputs.checksum_name }}" --repo "$env:GITHUB_REPOSITORY" --clobber
 
   build-release-noweb:
-    needs: create-release
+    needs: ensure-release
     name: build-release-noweb
     runs-on: ${{ matrix.os }}
     env:
@@ -244,27 +248,10 @@ jobs:
             os: windows-latest
             target: x86_64-pc-windows-msvc
     steps:
-      - name: Set release tag (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          if [ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' ]; then
-            echo "RELEASE_TAG=main" >> "$GITHUB_ENV"
-          else
-            echo "RELEASE_TAG=${GITHUB_REF#refs/tags/}"  >> "$GITHUB_ENV"
-          fi
-
-      - name: Set release tag (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
-            echo "RELEASE_TAG=main" >> $env:GITHUB_ENV
-          } else {
-            $tag = $env:GITHUB_REF -replace '^refs/tags/', ''
-            echo "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
-          }
-
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v2
@@ -333,27 +320,30 @@ jobs:
           "$hash  target/release/zellij.exe" | Out-File -Encoding ascii $checksum_name
           echo "checksum_name=$checksum_name" >> $env:GITHUB_OUTPUT
 
-      - name: Upload release archive
-        uses: actions/upload-release-asset@v1.0.2
+      - name: Upload release archive (Unix)
+        if: runner.os != 'Windows'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ steps.make-artifact-unix.outputs.asset_name || steps.make-artifact-windows.outputs.asset_name }}
-          asset_name: ${{ runner.os == 'Windows' && format('zellij-no-web-{0}.zip', matrix.target) || format('zellij-no-web-{0}.tar.gz', matrix.target) }}
-          asset_content_type: application/octet-stream
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" "${{ steps.make-artifact-unix.outputs.asset_name }}" --repo "$GITHUB_REPOSITORY" --clobber
 
-      - name: Upload checksum
-        uses: actions/upload-release-asset@v1.0.2
+      - name: Upload release archive (Windows)
+        if: runner.os == 'Windows'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ steps.make-checksum-unix.outputs.checksum_name || steps.make-checksum-windows.outputs.checksum_name }}
-          asset_name: zellij-no-web-${{matrix.target}}.sha256sum
-          asset_content_type: text/plain
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$env:RELEASE_TAG" "${{ steps.make-artifact-windows.outputs.asset_name }}" --repo "$env:GITHUB_REPOSITORY" --clobber
 
-      # ===== Windows MSI installer (no-web) =====
+      - name: Upload checksum (Unix)
+        if: runner.os != 'Windows'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" "${{ steps.make-checksum-unix.outputs.checksum_name }}" --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Upload checksum (Windows)
+        if: runner.os == 'Windows'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$env:RELEASE_TAG" "${{ steps.make-checksum-windows.outputs.checksum_name }}" --repo "$env:GITHUB_REPOSITORY" --clobber
+
       - name: Install WiX v6
         if: runner.os == 'Windows'
         run: dotnet tool install --global wix
@@ -384,22 +374,12 @@ jobs:
 
       - name: Upload MSI installer (no-web)
         if: runner.os == 'Windows'
-        uses: actions/upload-release-asset@v1.0.2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: target\wix\zellij-no-web-${{ matrix.target }}-installer.msi
-          asset_name: zellij-no-web-${{ matrix.target }}-installer.msi
-          asset_content_type: application/octet-stream
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$env:RELEASE_TAG" "target\wix\zellij-no-web-${{ matrix.target }}-installer.msi" --repo "$env:GITHUB_REPOSITORY" --clobber
 
       - name: Upload MSI checksum (no-web)
         if: runner.os == 'Windows'
-        uses: actions/upload-release-asset@v1.0.2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ steps.make-checksum-msi.outputs.checksum_name }}
-          asset_name: zellij-no-web-${{ matrix.target }}-installer.sha256sum
-          asset_content_type: text/plain
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$env:RELEASE_TAG" "${{ steps.make-checksum-msi.outputs.checksum_name }}" --repo "$env:GITHUB_REPOSITORY" --clobber
