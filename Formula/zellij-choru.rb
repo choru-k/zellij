@@ -1,9 +1,9 @@
 class ZellijChoru < Formula
-  desc "Zellij fork with agent-focused streaming, stacked-header, and pane-style improvements"
+  desc "Zellij fork with streaming and pane UX improvements"
   homepage "https://github.com/choru-k/zellij"
-  url "https://github.com/choru-k/zellij/archive/578fb91a096c37fb6dc249d446cda44c12c67f47.tar.gz"
-  version "0.44.0"
-  sha256 "18d811e986385fbb34a71c10316abdbba84c3c8b64e81f75b1c03b5add20c928"
+  url "https://github.com/choru-k/zellij/archive/refs/tags/v0.44.0-choru.1.tar.gz"
+  version "0.44.0-choru.1"
+  sha256 "1b47c874178392c7cdbccbf3d9e8b669c5256f6c45a47945dea2900a53d87880"
   license "MIT"
   head "https://github.com/choru-k/zellij.git", branch: "main"
 
