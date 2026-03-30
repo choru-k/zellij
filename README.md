@@ -78,9 +78,7 @@ If you want the standard upstream experience, upstream Zellij remains the canoni
 
 ### Versioning and Homebrew naming
 
-This fork currently tracks upstream `0.44.0` plus the fork-specific changes above.
-
-Until the fork starts publishing tagged releases, installation examples in this README pin an explicit source revision instead of a floating fork release name. When fork releases are tagged, prefer an upstream-based version plus a fork revision, for example:
+This fork currently tracks upstream `0.44.0` and publishes fork releases using an upstream base version plus a fork revision, for example:
 - `v0.44.0-choru.1`
 - `v0.44.0-choru.2`
 - `v0.45.0-choru.1`
@@ -91,7 +89,12 @@ For Homebrew, prefer a distinct formula name such as `zellij-choru` rather than 
 If you want the fork-specific features described above, install from this fork rather than the upstream release artifacts.
 
 ### Homebrew
-This repo includes a tap-ready formula at `Formula/zellij-choru.rb`. Once the repo is tapped, you can install the fork with:
+For most users, the simplest install path is:
+```bash
+brew install choru-k/zellij/zellij-choru
+```
+
+If you prefer to tap first, you can also run:
 ```bash
 brew tap choru-k/zellij https://github.com/choru-k/zellij
 brew install zellij-choru
@@ -112,9 +115,9 @@ If you just want to try the fork without installing it system-wide, you can run 
 ```
 
 ### Cargo install
-If you want Cargo to install a stable fork revision, pin it to an explicit commit until fork tags exist:
+Install the current tagged fork release with:
 ```bash
-cargo install --locked --git https://github.com/choru-k/zellij --rev 578fb91a096c37fb6dc249d446cda44c12c67f47 zellij
+cargo install --locked --git https://github.com/choru-k/zellij --tag v0.44.0-choru.1 zellij
 ```
 
 If you prefer to track the moving `main` branch instead, use:
@@ -139,7 +142,7 @@ bash -c 'bash <(curl -L https://zellij.dev/launch)'
 #### Installing from `main`
 Installing Zellij from the `main` branch is not recommended. This branch represents pre-release code, is constantly being worked on and may contain broken or unusable features. In addition, using it may corrupt the cache for future versions, forcing users to clear it before they can use the officially released version.
 
-That being said - no-one will stop you from using it (and bug reports involving new features are greatly appreciated), but please consider using a pinned revision or a tagged release once fork releases are published.
+That being said - no-one will stop you from using it (and bug reports involving new features are greatly appreciated), but please consider using the tagged release above instead.
 
 ## How do I start a development environment?
 
